@@ -2161,7 +2161,7 @@ public class ClickZoomWireListener
         {
             PrimitiveNode pinProto = Schematics.tech().wire_arc.findOverridablePinProto(getEditingPreferences());
             if (pinProto == null) return false;
-            pin = NodeInst.makeInstance(pinProto, new Point2D.Double(x, y), 0, 0, cell);
+            pin = NodeInst.makeInstance(pinProto, new Point2D.Double(x, y), pinProto.getDefWidth(getEditingPreferences()), pinProto.getDefHeight(getEditingPreferences()), cell);
             if (pin == null) return false;
             fieldVariableChanged("pin");
             return true;

@@ -2032,7 +2032,7 @@ public static void connectPortToArc(Cell cell, PortInst pi, ArcInst ai, Point2D 
 		}
 		PrimitiveNode pinProto = ai.getProto().findOverridablePinProto(ep);
 		if (pinProto == null) return;
-		NodeInst pin = NodeInst.makeInstance(pinProto, touchPoint, 0, 0, cell);
+		NodeInst pin = NodeInst.makeInstance(pinProto, touchPoint, pinProto.getDefWidth(ep), pinProto.getDefHeight(ep), cell);
 		if (pin == null) return;
 		PortInst pinPort = pin.getOnlyPortInst();
 		PortInst headPort = ai.getHeadPortInst();
