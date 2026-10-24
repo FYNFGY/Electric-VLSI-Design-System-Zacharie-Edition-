@@ -2019,6 +2019,17 @@ public static Point2D closestPointOnArc(ArcInst ai, Point2D p)
 	 */
 public static void connectPortToArc(Cell cell, PortInst pi, ArcInst ai, Point2D touchPoint, EditingPreferences ep)
 	{
+		// touching an arc end: connect directly to that port (no split needed)
+		if (touchPoint.distance(ai.getHeadLocation()) < 0.1)
+		{
+			connectPortsDirectly(cell, pi, ai.getHeadPortInst(), ep);
+			return;
+		}
+		if (touchPoint.distance(ai.getTailLocation()) < 0.1)
+		{
+			connectPortsDirectly(cell, pi, ai.getTailPortInst(), ep);
+			return;
+		}
 		PrimitiveNode pinProto = ai.getProto().findOverridablePinProto(ep);
 		if (pinProto == null) return;
 		NodeInst pin = NodeInst.makeInstance(pinProto, touchPoint, 0, 0, cell);

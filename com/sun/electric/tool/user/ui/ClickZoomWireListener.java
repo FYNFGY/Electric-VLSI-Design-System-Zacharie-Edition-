@@ -1713,9 +1713,9 @@ public class ClickZoomWireListener
 			if (cell == null) return;
 
             boolean redrawMouseOver = false;
-			// JLCEDA-style: W toggles wiring mode
-			if (chr == KeyEvent.VK_W && !evt.isControlDown() && !evt.isAltDown() && !evt.isShiftDown()) {
-                toggleWireMode();
+			// JLCEDA-style: DEL deletes the wire connected to the start terminal
+			if (chr == KeyEvent.VK_DELETE && modeLeft == Mode.wireClickActive) {
+                deleteStartWireAndExit(wnd);
                 return;
             }
 			// cancel current mode
@@ -2027,6 +2027,53 @@ public class ClickZoomWireListener
         PixelDrawing.setSchematicContactPoints(null);
         TopLevel.setCurrentCursor(null);
         wnd.repaint();
+    }
+
+    /**
+     * JLCEDA-style: DEL while wiring deletes the wire connected to the start
+     * terminal (the dangling wire segment) and exits wiring mode.
+     */
+    private void deleteStartWireAndExit(EditWindow wnd)
+    {
+        if (startObj instanceof PortInst && ((PortInst)startObj).isLinked())
+        {
+            PortInst pi = (PortInst)startObj;
+            NodeInst ni = pi.getNodeInst();
+            ArcInst arc = null;
+            for (Iterator<Connection> it = pi.getConnections(); it.hasNext();)
+            {
+                arc = it.next().getArc();
+                break;
+            }
+            if (arc != null && ni != null && Schematic.isDanglingPin(ni))
+                new DeleteWireEnd(arc, ni);
+        }
+        cancelWireClickMode(wnd);
+    }
+
+    /**
+     * Job to delete the dangling wire segment connected to a wire end.
+     */
+    private static class DeleteWireEnd extends Job
+    {
+        private final ArcInst arc;
+        private final NodeInst pin;
+
+        DeleteWireEnd(ArcInst arc, NodeInst pin)
+        {
+            super("Delete Wire End", User.getUserTool(), Job.Type.CHANGE, null, null, Job.Priority.USER);
+            this.arc = arc;
+            this.pin = pin;
+            startJob();
+        }
+
+        @Override
+        public boolean doIt() throws JobException
+        {
+            arc.kill();
+            pin.kill();
+            return true;
+        }
     }
 
     void wireFromPinCreated(EditWindow wnd, NodeInst pin)

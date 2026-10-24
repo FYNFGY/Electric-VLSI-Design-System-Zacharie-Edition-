@@ -1213,6 +1213,20 @@ public class PixelDrawing {
 			g.fillOval(sp.getIntX() - 4, sp.getIntY() - 4, 8, 8);
 		}
 
+		// wire pins render as thick blue dots (native wiring junctions)
+		g.setColor(new Color(40, 90, 220));
+		for (Iterator<NodeInst> it = cell.getNodes(); it.hasNext();)
+		{
+			NodeInst ni = it.next();
+			if (!(ni.getProto() instanceof PrimitiveNode)) continue;
+			if (((PrimitiveNode)ni.getProto()).getFunction() != PrimitiveNode.Function.PIN) continue;
+			Name nameKey = ni.getNameKey();
+			if (ni.hasExports() || (nameKey != null && !nameKey.isTempname())) continue; // labeled pin (ground tag)
+			Point2D c = ni.getTrueCenter();
+			ScreenPoint sp = wnd.databaseToScreen(c.getX(), c.getY());
+			g.fillOval(sp.getIntX() - 4, sp.getIntY() - 4, 8, 8);
+		}
+
 		// contact points while moving components: green crosses
 		if (contactPoints != null)
 		{
