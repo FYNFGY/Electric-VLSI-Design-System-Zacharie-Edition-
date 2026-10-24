@@ -65,6 +65,10 @@ import com.sun.electric.technology.technologies.Generic;
 import com.sun.electric.technology.technologies.Schematics;
 import com.sun.electric.tool.Job;
 import com.sun.electric.tool.JobException;
+import com.sun.electric.tool.routing.Route;
+import com.sun.electric.tool.routing.Router;
+import com.sun.electric.tool.routing.SimpleWirer;
+import com.sun.electric.tool.routing.VerticalRoute;
 import com.sun.electric.tool.Tool;
 import com.sun.electric.tool.io.FileType;
 import com.sun.electric.tool.io.input.LibraryFiles;
@@ -2330,8 +2334,7 @@ public class CircuitChangeJobs
 								|| Point2D.distance(pi.getCenter().getX(), pi.getCenter().getY(),
 									opi.getCenter().getX(), opi.getCenter().getY()) <= 0.5;
 							if (!touches) continue;
-							ArcInst.makeInstance(Schematics.tech().wire_arc, ep, pi, opi,
-								pi.getCenter(), opi.getCenter(), null);
+							connectPortsDirectly(cell, pi, opi, ep);
 						}
 					}
 				}
@@ -2399,9 +2402,27 @@ public class CircuitChangeJobs
 				ai.getHeadLocation(), touchPoint, null);
 			ArcInst.makeInstance(ai.getProto(), ep, pinPort, tailPort,
 				touchPoint, ai.getTailLocation(), null);
-			ArcInst.makeInstance(ai.getProto(), ep, pinPort, pi,
-				touchPoint, pi.getCenter(), null);
+			connectPortsDirectly(cell, pinPort, pi, ep);
 			ai.kill();
+		}
+
+		/**
+		 * Connect two ports that touch each other, using a direct arc when both
+		 * ports share an arc type, or a planned route (with contacts) otherwise.
+		 */
+		private static void connectPortsDirectly(Cell cell, PortInst pi, PortInst opi, EditingPreferences ep)
+		{
+			VerticalRoute vr = VerticalRoute.newRoute(pi.getPortProto(), opi.getPortProto(), pi, opi);
+			if (vr.isSpecificationSucceeded() && vr.getStartArc() == vr.getEndArc())
+			{
+				ArcInst.makeInstance(vr.getStartArc(), ep, pi, opi, pi.getCenter(), opi.getCenter(), null);
+				return;
+			}
+			// different arc types: plan a route with contacts
+			SimpleWirer ir = new SimpleWirer(ep);
+			Route route = ir.planRoute(cell, pi, opi, pi.getCenter(), null, ep, true, true, null, null);
+			if (route == null || route.isEmpty()) return;
+			Router.createRouteNoJob(route, cell, new HashMap<ArcProto,Integer>(), new HashMap<NodeProto,Integer>(), ep);
 		}
 
 		/**

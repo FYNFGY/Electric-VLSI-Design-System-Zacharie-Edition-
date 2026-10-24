@@ -1132,12 +1132,23 @@ public class PixelDrawing {
 			arcConnectedPorts.add(ai0.getTailPortInst());
 		}
 
-		// connectable terminals of cell instances:
+		// connectable terminals of components (cell instances and primitive
+		// components such as CN transistors):
 		// red dot when connected, yellow dot when unconnected
 		for (Iterator<NodeInst> it = cell.getNodes(); it.hasNext();)
 		{
 			NodeInst ni = it.next();
-			if (!ni.isCellInstance()) continue;
+			if (!ni.isCellInstance())
+			{
+				NodeProto np = ni.getProto();
+				if (np instanceof PrimitiveNode)
+				{
+					PrimitiveNode.Function fn = ((PrimitiveNode)np).getFunction();
+					if (fn == PrimitiveNode.Function.PIN || fn == PrimitiveNode.Function.CONNECT
+						|| fn == PrimitiveNode.Function.CONTACT || fn == PrimitiveNode.Function.NODE)
+						continue; // wiring infrastructure and artwork: handled elsewhere
+				} else continue;
+			}
 			for (Iterator<PortInst> pit = ni.getPortInsts(); pit.hasNext();)
 			{
 				PortInst pi = pit.next();
@@ -1156,7 +1167,8 @@ public class PixelDrawing {
 		for (Iterator<NodeInst> it = cell.getNodes(); it.hasNext();)
 		{
 			NodeInst ni = it.next();
-			if (ni.getProto() != Schematics.tech().wireConNode) continue;
+			if (!(ni.getProto() instanceof PrimitiveNode)) continue;
+			if (((PrimitiveNode)ni.getProto()).getFunction() != PrimitiveNode.Function.CONNECT) continue;
 			Point2D c = ni.getTrueCenter();
 			ScreenPoint sp = wnd.databaseToScreen(c.getX(), c.getY());
 			g.fillOval(sp.getIntX() - 3, sp.getIntY() - 3, 6, 6);

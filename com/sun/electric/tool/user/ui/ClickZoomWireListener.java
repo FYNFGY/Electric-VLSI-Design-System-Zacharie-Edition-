@@ -42,6 +42,7 @@ import com.sun.electric.database.variable.UserInterface;
 import com.sun.electric.technology.ArcProto;
 import com.sun.electric.technology.DRCTemplate;
 import com.sun.electric.technology.Layer;
+import com.sun.electric.technology.PrimitiveNode;
 import com.sun.electric.technology.Technology;
 import com.sun.electric.technology.technologies.Schematics;
 import com.sun.electric.tool.Job;
@@ -332,15 +333,6 @@ public class ClickZoomWireListener
                 if (modeLeft == Mode.wireClickActive) {
                     cancelWireClickMode(wnd);
                     return;
-                }
-
-                // JLCEDA-style: right-click on a dangling wire end offers Create Export
-                if (startCell.isSchematic() && !ctrlPressed && !invertSelection) {
-                    PortInst danglingPort = findDanglingPortUnderMouse(wnd, dbClick);
-                    if (danglingPort != null) {
-                        showDanglingPopupMenu(wnd, danglingPort, clickX, clickY);
-                        return;
-                    }
                 }
 
                 // ignore wiring commands in routing mode
@@ -1257,6 +1249,21 @@ public class ClickZoomWireListener
 
 	        if (isRightMouse(evt)) {
 
+	            // JLCEDA-style: a quick right-click on a dangling wire end offers
+	            // Create Export (a right-drag still wires natively)
+	            long rightCurTime = evt.getWhen();
+	            if ((modeRight == Mode.none || modeRight == Mode.wiringFind) && !ctrlPressed
+	            	&& startCell.isSchematic()
+	            	&& (rightCurTime - rightMousePressedTimeStamp) < cancelMoveDelayMillis) {
+	                PortInst danglingPort = findDanglingPortUnderMouse(wnd, dbMouse);
+	                if (danglingPort != null) {
+	                    if (modeRight == Mode.wiringFind) router.cancelInteractiveRoute();
+	                    modeRight = Mode.none;
+	                    showDanglingPopupMenu(wnd, danglingPort, releaseX, releaseY);
+	                    return;
+	                }
+	            }
+
 	            if (modeRight == Mode.zoomIn) {
 	                // zoom in by a factor of two
 	                double scale = wnd.getScale();
@@ -1743,17 +1750,22 @@ public class ClickZoomWireListener
     /**
      * Returns true if the given port is a wiring start point (yellow dot):
      * a dangling wire-end pin, a wire connection node, or an unconnected
-     * terminal of a cell instance.
+     * terminal of a component (cell instance or primitive component such as
+     * a CN transistor).
      */
     private boolean isWiringStartPort(PortInst pi)
     {
         NodeInst ni = pi.getNodeInst();
         if (ni == null) return false;
         if (Schematic.isDanglingPin(ni)) return true;
-        if (ni.getProto() == Schematics.tech().wireConNode) return true;
-        if (ni.isCellInstance())
-            return !isPortArcConnected(ni.getParent(), pi);
-        return false;
+        if (ni.getProto() instanceof PrimitiveNode)
+        {
+            PrimitiveNode.Function fn = ((PrimitiveNode)ni.getProto()).getFunction();
+            if (fn == PrimitiveNode.Function.CONNECT) return true; // wire connection node
+            if (fn == PrimitiveNode.Function.PIN || fn == PrimitiveNode.Function.CONTACT
+                || fn == PrimitiveNode.Function.NODE) return false; // wiring infra / artwork
+        } else if (!ni.isCellInstance()) return false;
+        return !isPortArcConnected(ni.getParent(), pi);
     }
 
     private boolean isPortArcConnected(Cell cell, PortInst pi)
