@@ -59,7 +59,9 @@ import com.sun.electric.tool.user.Highlighter;
 import com.sun.electric.tool.user.User;
 import com.sun.electric.tool.user.UserInterfaceMain;
 import com.sun.electric.tool.user.dialogs.NewExport;
+import com.sun.electric.tool.user.dialogs.ManipulateExports;
 import com.sun.electric.tool.user.menus.EditMenu;
+import com.sun.electric.tool.user.menus.WindowMenu;
 import com.sun.electric.tool.user.redisplay.PixelDrawing;
 import com.sun.electric.util.ClientOS;
 import com.sun.electric.util.math.DBMath;
@@ -342,6 +344,17 @@ public class ClickZoomWireListener
                 if (modeLeft == Mode.wireModePending) {
                     exitWireMode(wnd);
                     return;
+                }
+
+                // JLCEDA-style: right-click on empty schematic space shows a menu
+                if (startCell != null && startCell.isSchematic() && !ctrlPressed && !invertSelection)
+                {
+                    Highlight emptyHit = highlighter.findObject(dbClick, wnd, false, false, false, true, false, specialSelect, false, false);
+                    if (emptyHit == null)
+                    {
+                        showEmptySpacePopupMenu(wnd, clickX, clickY);
+                        return;
+                    }
                 }
 
                 // ignore wiring commands in routing mode
@@ -1724,6 +1737,12 @@ public class ClickZoomWireListener
                 deleteStartWireAndExit(wnd);
                 return;
             }
+			// JLCEDA-style: R connects all overlapping terminals (schematic only)
+			if (chr == KeyEvent.VK_R && !evt.isControlDown() && !evt.isAltDown()
+				&& !evt.isShiftDown() && cell.isSchematic()) {
+                WindowMenu.connectOverlapsCommand();
+                return;
+            }
 			// cancel current mode
 			if (chr == KeyEvent.VK_ESCAPE) {
                 escapePressed(wnd);
@@ -1825,6 +1844,8 @@ public class ClickZoomWireListener
     {
         EditWindow wnd = EditWindow.getCurrent();
         if (wnd == null) return;
+        // wire mode is schematic-only
+        if (wnd.getCell() == null || !wnd.getCell().isSchematic()) return;
         if (modeLeft == Mode.wireModePending)
         {
             exitWireMode(wnd);
@@ -2033,6 +2054,7 @@ public class ClickZoomWireListener
             }
         }
         PixelDrawing.setSchematicContactPoints(contacts.isEmpty() ? null : contacts);
+        wnd.repaint();
     }
 
     /**
@@ -2240,6 +2262,21 @@ public class ClickZoomWireListener
             new NewExport(TopLevel.getCurrentJFrame());
         });
         popup.add(item);
+        popup.show(wnd, x, y);
+    }
+
+    private void showEmptySpacePopupMenu(EditWindow wnd, int x, int y)
+    {
+        JPopupMenu popup = new JPopupMenu();
+        JMenuItem wireItem = new JMenuItem("Wire (W)");
+        wireItem.addActionListener(e -> toggleWireMode());
+        popup.add(wireItem);
+        JMenuItem connectItem = new JMenuItem("Auto-Connect Overlaps (R)");
+        connectItem.addActionListener(e -> WindowMenu.connectOverlapsCommand());
+        popup.add(connectItem);
+        JMenuItem exportsItem = new JMenuItem("Manipulate Exports...");
+        exportsItem.addActionListener(e -> ManipulateExports.showDialog());
+        popup.add(exportsItem);
         popup.show(wnd, x, y);
     }
 

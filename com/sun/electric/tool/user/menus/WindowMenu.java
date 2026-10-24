@@ -33,6 +33,7 @@ import com.sun.electric.technology.Technology;
 import com.sun.electric.tool.Job;
 import com.sun.electric.tool.io.FileType;
 import com.sun.electric.tool.user.MessagesStream;
+import com.sun.electric.tool.user.CircuitChangeJobs;
 import com.sun.electric.tool.user.Resources;
 import com.sun.electric.tool.user.User;
 import com.sun.electric.tool.user.UserInterfaceMain;
@@ -208,6 +209,8 @@ public class WindowMenu {
                 toggleGridCommand(); }},
             new EMenuItem("Toggle _Wire Mode", KeyStroke.getKeyStroke(KeyEvent.VK_W, 0)) { public void run() {
                 toggleWireModeCommand(); }},
+			new EMenuItem("Connect All _Overlapping Terminals") { public void run() {
+				connectOverlapsCommand(); }},
             new EMenu("Me_asurements",
                 new EMenuItem("_Toggle Measurement Mode") { public void run() {
                 	ToolBar.setCursorMode(CursorMode.MEASURE); }},
@@ -708,8 +711,22 @@ public class WindowMenu {
      * press W again to exit).
      */
     public static void toggleWireModeCommand()
+
     {
         ClickZoomWireListener.theOne.toggleWireMode();
+    }
+
+    /**
+     * This method connects every pair of overlapping unconnected terminals
+     * in the current schematic cell (JLCEDA-style R command).
+     */
+    public static void connectOverlapsCommand()
+    {
+        EditWindow wnd = EditWindow.getCurrent();
+        if (wnd == null) return;
+        Cell cell = wnd.getCell();
+        if (cell == null || !cell.isSchematic()) return;
+        new CircuitChangeJobs.ConnectAllOverlappingPorts(cell);
     }
 
     /**

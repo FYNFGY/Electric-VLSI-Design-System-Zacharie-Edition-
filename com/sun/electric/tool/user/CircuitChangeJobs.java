@@ -85,6 +85,7 @@ import com.sun.electric.util.math.GenMath;
 import com.sun.electric.util.math.Orientation;
 
 import java.awt.geom.Point2D;
+import java.awt.geom.Line2D;
 import java.awt.geom.Rectangle2D;
 import java.io.Serializable;
 import java.util.ArrayList;
@@ -1967,9 +1968,12 @@ public static void autoConnectOverlappingPorts(Cell cell, List<NodeInst> movedNo
 						if (isBusPort(opi)) continue;
 						if (arcConnectedPorts.contains(opi)) continue; // already wired: never auto-connect
 						if (netlist.getNetwork(pi) == netlist.getNetwork(opi)) continue;
-						boolean touches = opi.getPoly().getBounds2D().intersects(bounds)
+						Rectangle2D ob = opi.getPoly().getBounds2D();
+						Rectangle2D expandedB = new Rectangle2D.Double(ob.getMinX() - 0.25, ob.getMinY() - 0.25,
+							ob.getWidth() + 0.5, ob.getHeight() + 0.5);
+						boolean touches = expandedB.intersects(bounds)
 							|| Point2D.distance(pi.getCenter().getX(), pi.getCenter().getY(),
-								opi.getCenter().getX(), opi.getCenter().getY()) <= 0.5;
+								opi.getCenter().getX(), opi.getCenter().getY()) <= 1.0;
 						if (!touches) continue;
 						connectPortsDirectly(cell, pi, opi, ep);
 					}
@@ -1982,13 +1986,26 @@ public static void autoConnectOverlappingPorts(Cell cell, List<NodeInst> movedNo
 				if (isBusPort(pi)) continue;
 				if (arcConnectedPorts.contains(pi)) continue; // already wired: never auto-connect
 				Point2D pc = pi.getCenter();
+				Rectangle2D pb = pi.getPoly().getBounds2D();
+				Rectangle2D expandedPB = new Rectangle2D.Double(pb.getMinX() - 0.25, pb.getMinY() - 0.25,
+					pb.getWidth() + 0.5, pb.getHeight() + 0.5);
 				for (ArcInst ai : allArcs)
 				{
 					if (!ai.isLinked()) continue;
 					if (ai.getHeadPortInst() == pi || ai.getTailPortInst() == pi) continue;
 					Point2D proj = closestPointOnArc(ai, pc);
 					if (proj == null) continue;
-					if (Point2D.distance(pc.getX(), pc.getY(), proj.getX(), proj.getY()) > 0.5) continue;
+					boolean touchesArc = Point2D.distance(pc.getX(), pc.getY(), proj.getX(), proj.getY()) <= 0.5
+						|| expandedPB.contains(proj.getX(), proj.getY());
+					if (!touchesArc)
+					{
+						// big ports: the wire segment may cross the port even when
+						// the projection of the port center is far away
+						Line2D seg = new Line2D.Double(ai.getHeadLocation().getX(), ai.getHeadLocation().getY(),
+							ai.getTailLocation().getX(), ai.getTailLocation().getY());
+						touchesArc = seg.intersects(expandedPB);
+					}
+					if (!touchesArc) continue;
 					connectPortToArc(cell, pi, ai, proj, ep);
 					break;
 				}
@@ -2000,6 +2017,32 @@ public static void autoConnectOverlappingPorts(Cell cell, List<NodeInst> movedNo
 	 * Returns the closest point on the arc's segment to point p (null for
 	 * zero-length arcs).
 	 */
+	/**
+	 * JLCEDA-style R command: connect every overlapping unconnected terminal
+	 * pair in the schematic.
+	 */
+	public static class ConnectAllOverlappingPorts extends Job
+	{
+		private final Cell cell;
+
+		public ConnectAllOverlappingPorts(Cell cell)
+		{
+			super("Connect Overlapping Ports", User.getUserTool(), Job.Type.CHANGE, null, null, Job.Priority.USER);
+			this.cell = cell;
+			startJob();
+		}
+
+		@Override
+		public boolean doIt() throws JobException
+		{
+			List<NodeInst> allNodes = new ArrayList<NodeInst>();
+			for (Iterator<NodeInst> it = cell.getNodes(); it.hasNext();)
+				allNodes.add(it.next());
+			autoConnectOverlappingPorts(cell, allNodes);
+			return true;
+		}
+	}
+
 public static Point2D closestPointOnArc(ArcInst ai, Point2D p)
 	{
 		double x1 = ai.getHeadLocation().getX(), y1 = ai.getHeadLocation().getY();
@@ -2054,10 +2097,10 @@ public static void connectPortsDirectly(Cell cell, PortInst pi, PortInst opi, Ed
 		VerticalRoute vr = VerticalRoute.newRoute(pi.getPortProto(), opi.getPortProto(), pi, opi);
 		if (vr.isSpecificationSucceeded() && vr.getStartArc() == vr.getEndArc())
 		{
-			ArcInst.makeInstance(vr.getStartArc(), ep, pi, opi, pi.getCenter(), opi.getCenter(), null);
-			return;
+			ArcInst a = ArcInst.makeInstance(vr.getStartArc(), ep, pi, opi, pi.getCenter(), opi.getCenter(), null);
+			if (a != null) return;
 		}
-		// different arc types: plan a route with contacts
+		// different arc types (or direct arc failed): plan a route with contacts
 		SimpleWirer ir = new SimpleWirer(ep);
 		Route route = ir.planRoute(cell, pi, opi, pi.getCenter(), null, ep, true, true, null, null);
 		if (route == null || route.isEmpty()) return;
