@@ -37,8 +37,10 @@ import com.sun.electric.technology.technologies.Generic;
 import com.sun.electric.technology.technologies.Schematics;
 import com.sun.electric.tool.Job;
 import com.sun.electric.tool.JobException;
+import com.sun.electric.tool.user.CircuitChangeJobs;
 import com.sun.electric.tool.user.Highlighter;
 import com.sun.electric.tool.user.User;
+import com.sun.electric.tool.user.redisplay.PixelDrawing;
 import com.sun.electric.tool.user.UserInterfaceMain;
 import com.sun.electric.tool.user.dialogs.NewExport;
 import com.sun.electric.tool.user.tecEdit.Info;
@@ -56,6 +58,7 @@ import java.awt.event.MouseEvent;
 import java.awt.event.MouseListener;
 import java.awt.event.MouseWheelEvent;
 import java.awt.geom.Point2D;
+import java.util.Collections;
 import java.util.Iterator;
 
 import javax.swing.JComboBox;
@@ -418,6 +421,7 @@ public class PaletteFrame implements MouseListener
                 highlighter.clear();
                 highlighter.finished();
             }
+            PixelDrawing.setPlacementPreview(null, 0, 0, 0);
             WindowFrame.setListener(oldListener);
             TopLevel.setCurrentCursor(oldCursor);
             if (palette != null)
@@ -574,6 +578,9 @@ public class PaletteFrame implements MouseListener
 
 			NodeInst newNi = NodeInst.makeInstance(np, ep, where, width, height, cell, defOrient, null, techBits);
 			if (newNi == null) return false;
+			// JLCEDA-style: connect terminals that land on wires or other terminals
+			if (cell.isSchematic())
+				CircuitChangeJobs.autoConnectOverlappingPorts(cell, Collections.singletonList(newNi));
 			if (np == Generic.tech().cellCenterNode || np == Generic.tech().essentialBoundsNode ||
                 (np instanceof PrimitiveNode && ((PrimitiveNode)np).isPureWellNode()))
 					newNi.setHardSelect();

@@ -1914,6 +1914,153 @@ public class CircuitChangeJobs
 		}
 	}
 
+public static void autoConnectOverlappingPorts(Cell cell, List<NodeInst> movedNodes)
+	{
+		if (!cell.isSchematic() || movedNodes.isEmpty()) return;
+		Netlist netlist = cell.getNetlist();
+		if (netlist == null) return;
+		EditingPreferences ep = EditingPreferences.getInstance();
+
+		// snapshot of all arcs (arcs may be split below)
+		List<ArcInst> allArcs = new ArrayList<ArcInst>();
+		for (Iterator<ArcInst> ait = cell.getArcs(); ait.hasNext();)
+			allArcs.add(ait.next());
+
+		for (NodeInst mni : movedNodes)
+		{
+			// port-on-port contacts
+			for (Iterator<NodeInst> nit = cell.getNodes(); nit.hasNext();)
+			{
+				NodeInst oni = nit.next();
+				if (oni == mni) continue;
+				if (mni.getNodeId() >= oni.getNodeId()) continue;
+				for (Iterator<PortInst> pit = mni.getPortInsts(); pit.hasNext();)
+				{
+					PortInst pi = pit.next();
+					if (isBusPort(pi)) continue;
+					Rectangle2D bounds = pi.getPoly().getBounds2D();
+					for (Iterator<PortInst> opit = oni.getPortInsts(); opit.hasNext();)
+					{
+						PortInst opi = opit.next();
+						if (isBusPort(opi)) continue;
+						if (netlist.getNetwork(pi) == netlist.getNetwork(opi)) continue;
+						boolean touches = opi.getPoly().getBounds2D().intersects(bounds)
+							|| Point2D.distance(pi.getCenter().getX(), pi.getCenter().getY(),
+								opi.getCenter().getX(), opi.getCenter().getY()) <= 0.5;
+						if (!touches) continue;
+						connectPortsDirectly(cell, pi, opi, ep);
+					}
+				}
+			}
+			// JLCEDA-style: connect unconnected terminals to wires they touch
+			for (Iterator<PortInst> pit = mni.getPortInsts(); pit.hasNext();)
+			{
+				PortInst pi = pit.next();
+				if (isBusPort(pi)) continue;
+				boolean alreadyConnected = false;
+				for (ArcInst ai : allArcs)
+				{
+					if (ai.getHeadPortInst() == pi || ai.getTailPortInst() == pi)
+					{
+						alreadyConnected = true;
+						break;
+					}
+				}
+				if (alreadyConnected) continue;
+				Point2D pc = pi.getCenter();
+				for (ArcInst ai : allArcs)
+				{
+					if (!ai.isLinked()) continue;
+					if (ai.getHeadPortInst() == pi || ai.getTailPortInst() == pi) continue;
+					Point2D proj = closestPointOnArc(ai, pc);
+					if (proj == null) continue;
+					if (Point2D.distance(pc.getX(), pc.getY(), proj.getX(), proj.getY()) > 0.5) continue;
+					connectPortToArc(cell, pi, ai, proj, ep);
+					break;
+				}
+			}
+		}
+	}
+
+	/**
+	 * Returns the closest point on the arc's segment to point p (null for
+	 * zero-length arcs).
+	 */
+public static Point2D closestPointOnArc(ArcInst ai, Point2D p)
+	{
+		double x1 = ai.getHeadLocation().getX(), y1 = ai.getHeadLocation().getY();
+		double x2 = ai.getTailLocation().getX(), y2 = ai.getTailLocation().getY();
+		double dx = x2 - x1, dy = y2 - y1;
+		double len2 = dx * dx + dy * dy;
+		if (len2 == 0) return null;
+		double t = ((p.getX() - x1) * dx + (p.getY() - y1) * dy) / len2;
+		if (t < 0) t = 0;
+		else if (t > 1) t = 1;
+		return new Point2D.Double(x1 + t * dx, y1 + t * dy);
+	}
+
+	/**
+	 * Connect a port to a wire by splitting the wire at the touch point
+	 * with a pin and wiring the pin to the port (JLCEDA-style).
+	 */
+public static void connectPortToArc(Cell cell, PortInst pi, ArcInst ai, Point2D touchPoint, EditingPreferences ep)
+	{
+		PrimitiveNode pinProto = ai.getProto().findOverridablePinProto(ep);
+		if (pinProto == null) return;
+		NodeInst pin = NodeInst.makeInstance(pinProto, touchPoint, 0, 0, cell);
+		if (pin == null) return;
+		PortInst pinPort = pin.getOnlyPortInst();
+		PortInst headPort = ai.getHeadPortInst();
+		PortInst tailPort = ai.getTailPortInst();
+		ArcInst.makeInstance(ai.getProto(), ep, headPort, pinPort,
+			ai.getHeadLocation(), touchPoint, null);
+		ArcInst.makeInstance(ai.getProto(), ep, pinPort, tailPort,
+			touchPoint, ai.getTailLocation(), null);
+		connectPortsDirectly(cell, pinPort, pi, ep);
+		ai.kill();
+	}
+
+	/**
+	 * Connect two ports that touch each other, using a direct arc when both
+	 * ports share an arc type, or a planned route (with contacts) otherwise.
+	 */
+public static void connectPortsDirectly(Cell cell, PortInst pi, PortInst opi, EditingPreferences ep)
+	{
+		VerticalRoute vr = VerticalRoute.newRoute(pi.getPortProto(), opi.getPortProto(), pi, opi);
+		if (vr.isSpecificationSucceeded() && vr.getStartArc() == vr.getEndArc())
+		{
+			ArcInst.makeInstance(vr.getStartArc(), ep, pi, opi, pi.getCenter(), opi.getCenter(), null);
+			return;
+		}
+		// different arc types: plan a route with contacts
+		SimpleWirer ir = new SimpleWirer(ep);
+		Route route = ir.planRoute(cell, pi, opi, pi.getCenter(), null, ep, true, true, null, null);
+		if (route == null || route.isEmpty()) return;
+		Router.createRouteNoJob(route, cell, new HashMap<ArcProto,Integer>(), new HashMap<NodeProto,Integer>(), ep);
+	}
+
+	/**
+	 * Returns true if the given port belongs to a bus.
+	 */
+public static boolean isBusPort(PortInst pi)
+	{
+		PortProto pp = pi.getPortProto();
+		if (pp instanceof PrimitivePort) return isBusPortProto((PrimitivePort)pp);
+		if (pp instanceof Export)
+		{
+			PortInst opi = ((Export)pp).getOriginalPort();
+			if (opi != null && opi.getPortProto() instanceof PrimitivePort)
+				return isBusPortProto((PrimitivePort)opi.getPortProto());
+		}
+		return false;
+	}
+
+public static boolean isBusPortProto(PrimitivePort pp)
+	{
+		for (ArcProto conn : pp.getConnections())
+			if (conn.getFunction() == ArcProto.Function.BUS) return true;
+		return false;
+	}
 	/****************************** MOVE SELECTED OBJECTS ******************************/
 
 	public static class ManyMove extends Job
@@ -2300,153 +2447,6 @@ public class CircuitChangeJobs
 		 * After moving nodes in a schematic, connect any ports that now overlap
 		 * (JLCEDA-style auto-connect).
 		 */
-		private static void autoConnectOverlappingPorts(Cell cell, List<NodeInst> movedNodes)
-		{
-			if (!cell.isSchematic() || movedNodes.isEmpty()) return;
-			Netlist netlist = cell.getNetlist();
-			if (netlist == null) return;
-			EditingPreferences ep = EditingPreferences.getInstance();
-
-			// snapshot of all arcs (arcs may be split below)
-			List<ArcInst> allArcs = new ArrayList<ArcInst>();
-			for (Iterator<ArcInst> ait = cell.getArcs(); ait.hasNext();)
-				allArcs.add(ait.next());
-
-			for (NodeInst mni : movedNodes)
-			{
-				// port-on-port contacts
-				for (Iterator<NodeInst> nit = cell.getNodes(); nit.hasNext();)
-				{
-					NodeInst oni = nit.next();
-					if (oni == mni) continue;
-					if (mni.getNodeId() >= oni.getNodeId()) continue;
-					for (Iterator<PortInst> pit = mni.getPortInsts(); pit.hasNext();)
-					{
-						PortInst pi = pit.next();
-						if (isBusPort(pi)) continue;
-						Rectangle2D bounds = pi.getPoly().getBounds2D();
-						for (Iterator<PortInst> opit = oni.getPortInsts(); opit.hasNext();)
-						{
-							PortInst opi = opit.next();
-							if (isBusPort(opi)) continue;
-							if (netlist.getNetwork(pi) == netlist.getNetwork(opi)) continue;
-							boolean touches = opi.getPoly().getBounds2D().intersects(bounds)
-								|| Point2D.distance(pi.getCenter().getX(), pi.getCenter().getY(),
-									opi.getCenter().getX(), opi.getCenter().getY()) <= 0.5;
-							if (!touches) continue;
-							connectPortsDirectly(cell, pi, opi, ep);
-						}
-					}
-				}
-				// JLCEDA-style: connect unconnected terminals to wires they touch
-				for (Iterator<PortInst> pit = mni.getPortInsts(); pit.hasNext();)
-				{
-					PortInst pi = pit.next();
-					if (isBusPort(pi)) continue;
-					boolean alreadyConnected = false;
-					for (ArcInst ai : allArcs)
-					{
-						if (ai.getHeadPortInst() == pi || ai.getTailPortInst() == pi)
-						{
-							alreadyConnected = true;
-							break;
-						}
-					}
-					if (alreadyConnected) continue;
-					Point2D pc = pi.getCenter();
-					for (ArcInst ai : allArcs)
-					{
-						if (!ai.isLinked()) continue;
-						if (ai.getHeadPortInst() == pi || ai.getTailPortInst() == pi) continue;
-						Point2D proj = closestPointOnArc(ai, pc);
-						if (proj == null) continue;
-						if (Point2D.distance(pc.getX(), pc.getY(), proj.getX(), proj.getY()) > 0.5) continue;
-						connectPortToArc(cell, pi, ai, proj, ep);
-						break;
-					}
-				}
-			}
-		}
-
-		/**
-		 * Returns the closest point on the arc's segment to point p (null for
-		 * zero-length arcs).
-		 */
-		private static Point2D closestPointOnArc(ArcInst ai, Point2D p)
-		{
-			double x1 = ai.getHeadLocation().getX(), y1 = ai.getHeadLocation().getY();
-			double x2 = ai.getTailLocation().getX(), y2 = ai.getTailLocation().getY();
-			double dx = x2 - x1, dy = y2 - y1;
-			double len2 = dx * dx + dy * dy;
-			if (len2 == 0) return null;
-			double t = ((p.getX() - x1) * dx + (p.getY() - y1) * dy) / len2;
-			if (t < 0) t = 0;
-			else if (t > 1) t = 1;
-			return new Point2D.Double(x1 + t * dx, y1 + t * dy);
-		}
-
-		/**
-		 * Connect a port to a wire by splitting the wire at the touch point
-		 * with a pin and wiring the pin to the port (JLCEDA-style).
-		 */
-		private static void connectPortToArc(Cell cell, PortInst pi, ArcInst ai, Point2D touchPoint, EditingPreferences ep)
-		{
-			PrimitiveNode pinProto = ai.getProto().findOverridablePinProto(ep);
-			if (pinProto == null) return;
-			NodeInst pin = NodeInst.makeInstance(pinProto, touchPoint, 0, 0, cell);
-			if (pin == null) return;
-			PortInst pinPort = pin.getOnlyPortInst();
-			PortInst headPort = ai.getHeadPortInst();
-			PortInst tailPort = ai.getTailPortInst();
-			ArcInst.makeInstance(ai.getProto(), ep, headPort, pinPort,
-				ai.getHeadLocation(), touchPoint, null);
-			ArcInst.makeInstance(ai.getProto(), ep, pinPort, tailPort,
-				touchPoint, ai.getTailLocation(), null);
-			connectPortsDirectly(cell, pinPort, pi, ep);
-			ai.kill();
-		}
-
-		/**
-		 * Connect two ports that touch each other, using a direct arc when both
-		 * ports share an arc type, or a planned route (with contacts) otherwise.
-		 */
-		private static void connectPortsDirectly(Cell cell, PortInst pi, PortInst opi, EditingPreferences ep)
-		{
-			VerticalRoute vr = VerticalRoute.newRoute(pi.getPortProto(), opi.getPortProto(), pi, opi);
-			if (vr.isSpecificationSucceeded() && vr.getStartArc() == vr.getEndArc())
-			{
-				ArcInst.makeInstance(vr.getStartArc(), ep, pi, opi, pi.getCenter(), opi.getCenter(), null);
-				return;
-			}
-			// different arc types: plan a route with contacts
-			SimpleWirer ir = new SimpleWirer(ep);
-			Route route = ir.planRoute(cell, pi, opi, pi.getCenter(), null, ep, true, true, null, null);
-			if (route == null || route.isEmpty()) return;
-			Router.createRouteNoJob(route, cell, new HashMap<ArcProto,Integer>(), new HashMap<NodeProto,Integer>(), ep);
-		}
-
-		/**
-		 * Returns true if the given port belongs to a bus.
-		 */
-		private static boolean isBusPort(PortInst pi)
-		{
-			PortProto pp = pi.getPortProto();
-			if (pp instanceof PrimitivePort) return isBusPortProto((PrimitivePort)pp);
-			if (pp instanceof Export)
-			{
-				PortInst opi = ((Export)pp).getOriginalPort();
-				if (opi != null && opi.getPortProto() instanceof PrimitivePort)
-					return isBusPortProto((PrimitivePort)opi.getPortProto());
-			}
-			return false;
-		}
-
-		private static boolean isBusPortProto(PrimitivePort pp)
-		{
-			for (ArcProto conn : pp.getConnections())
-				if (conn.getFunction() == ArcProto.Function.BUS) return true;
-			return false;
-		}
 
 
 		/**

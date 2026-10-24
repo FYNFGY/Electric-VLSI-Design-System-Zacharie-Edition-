@@ -848,6 +848,17 @@ public class Clipboard //implements ClipboardOwner
 			copyListToCell(toCell, geomList, textList, newGeomList, newTextList, new Point2D.Double(dX, dY),
                 copyExports, fromRight, uniqueArcs, convertSchLay, alignment, inPlace, inPlaceOrient,
                 expansionState, nodesToExpand, getEditingPreferences());
+
+			// JLCEDA-style: connect pasted terminals that land on wires or other terminals
+			if (toCell.isSchematic())
+			{
+				List<NodeInst> pastedNodes = new ArrayList<NodeInst>();
+				for (Geometric g : newGeomList)
+				{
+					if (g instanceof NodeInst) pastedNodes.add((NodeInst)g);
+				}
+				CircuitChangeJobs.autoConnectOverlappingPorts(toCell, pastedNodes);
+			}
 			fieldVariableChanged("newGeomList");
 			fieldVariableChanged("newTextList");
 			fieldVariableChanged("nodesToExpand");

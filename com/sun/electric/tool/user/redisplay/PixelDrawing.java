@@ -29,7 +29,10 @@ import com.sun.electric.database.geometry.ScreenPoint;
 import com.sun.electric.database.hierarchy.Cell;
 import com.sun.electric.database.hierarchy.Export;
 import com.sun.electric.database.id.CellId;
+import com.sun.electric.database.text.Name;
+import com.sun.electric.database.EditingPreferences;
 import com.sun.electric.database.prototype.NodeProto;
+import com.sun.electric.database.prototype.PortProto;
 import com.sun.electric.database.topology.ArcInst;
 import com.sun.electric.database.topology.Connection;
 import com.sun.electric.database.topology.NodeInst;
@@ -234,6 +237,21 @@ public class PixelDrawing {
 	private static Point2D.Double wireDBPoint = null;
 	/** contact points while moving components (green crosses) */
 	private static List<Point2D.Double> contactPoints = null;
+	/** component being placed (palette placement preview) */
+	private static NodeProto previewProto = null;
+	private static double previewX, previewY;
+	private static int previewAngle;
+
+	/**
+	 * Method to set the component placement preview (null proto clears it).
+	 */
+	public static void setPlacementPreview(NodeProto np, double x, double y, int angle)
+	{
+		previewProto = np;
+		previewX = x;
+		previewY = y;
+		previewAngle = angle;
+	}
 
 	/**
 	 * Method to set the schematic wiring preview state for the overlay
@@ -1144,9 +1162,16 @@ public class PixelDrawing {
 				if (np instanceof PrimitiveNode)
 				{
 					PrimitiveNode.Function fn = ((PrimitiveNode)np).getFunction();
-					if (fn == PrimitiveNode.Function.PIN || fn == PrimitiveNode.Function.CONNECT
+					if (fn == PrimitiveNode.Function.CONNECT
 						|| fn == PrimitiveNode.Function.CONTACT || fn == PrimitiveNode.Function.NODE)
 						continue; // wiring infrastructure and artwork: handled elsewhere
+					if (fn == PrimitiveNode.Function.PIN)
+					{
+						// only labeled pins (ground/power tags) get terminal dots
+						Name nameKey = ni.getNameKey();
+						boolean labeled = ni.hasExports() || (nameKey != null && !nameKey.isTempname());
+						if (!labeled) continue;
+					}
 				} else continue;
 			}
 			for (Iterator<PortInst> pit = ni.getPortInsts(); pit.hasNext();)
@@ -1188,6 +1213,36 @@ public class PixelDrawing {
 			}
 		}
 
+		// component placement preview: outline, name, and yellow terminals
+		if (previewProto != null)
+		{
+			EditingPreferences ep = EditingPreferences.getInstance();
+			Orientation orient = Orientation.fromJava(previewAngle, previewAngle >= 3600, false);
+			NodeInst dummy = NodeInst.makeDummyInstance(previewProto, ep, 0,
+				EPoint.fromLambda(0, 0), previewProto.getDefWidth(ep), previewProto.getDefHeight(ep), orient);
+			if (dummy != null)
+			{
+				Rectangle2D b = dummy.getBounds();
+				ScreenPoint s1 = wnd.databaseToScreen(previewX + b.getMinX(), previewY + b.getMaxY());
+				ScreenPoint s2 = wnd.databaseToScreen(previewX + b.getMaxX(), previewY + b.getMinY());
+				g.setColor(new Color(0, 120, 215));
+				g.drawRect(s1.getIntX(), s1.getIntY(),
+					Math.max(1, s2.getIntX() - s1.getIntX()), Math.max(1, s2.getIntY() - s1.getIntY()));
+				g.drawString(previewProto.describe(false), s1.getIntX(), s1.getIntY() - 4);
+
+				g.setColor(new Color(240, 140, 0));
+				for (Iterator<PortProto> ppit = previewProto.getPorts(); ppit.hasNext();)
+				{
+					PortProto pp = ppit.next();
+					Poly portPoly = dummy.getShapeOfPort(pp);
+					if (portPoly == null) continue;
+					Rectangle2D pb = portPoly.getBounds2D();
+					ScreenPoint sp = wnd.databaseToScreen(previewX + pb.getCenterX(), previewY + pb.getCenterY());
+					g.fillOval(sp.getIntX() - 3, sp.getIntY() - 3, 6, 6);
+				}
+			}
+		}
+
 		// dangling wire ends
 		g.setColor(new Color(240, 140, 0));
 		for (Iterator<ArcInst> ait = cell.getArcs(); ait.hasNext();)
@@ -1205,12 +1260,12 @@ public class PixelDrawing {
 		}
 
 		// rubber-band guide lines while wiring
-		if (wireActive && wireStartDBPoint != null && wireDBPoint != null)
+		if (wireActive && wireDBPoint != null)
 		{
 			g.setColor(new Color(130, 130, 130, 180));
 			g.setStroke(new BasicStroke(1, BasicStroke.CAP_BUTT, BasicStroke.JOIN_MITER, 10,
 					new float[] { 4, 4 }, 0));
-			drawGuideLines(g, wnd, sz, wireStartDBPoint);
+			if (wireStartDBPoint != null) drawGuideLines(g, wnd, sz, wireStartDBPoint);
 			drawGuideLines(g, wnd, sz, wireDBPoint);
 			g.setStroke(new BasicStroke());
 		}
@@ -2304,7 +2359,7 @@ public class PixelDrawing {
 				lineType = 3;
 			// draw schematic wires thicker (JLCEDA-style rendering)
 			if (lineType == 0 && thickenArcLines)
-				lineType = 3;
+				lineType = 4;
 
 			for (int j = 1; j < points.length; j++) {
 				Point2D oldPt = points[j - 1];
@@ -2674,6 +2729,9 @@ public class PixelDrawing {
 		case 3:
 			drawThickLine(pt1.x, pt1.y, pt2.x, pt2.y, layerBitMap, col);
 			break;
+		case 4:
+			drawThickLine5(pt1.x, pt1.y, pt2.x, pt2.y, layerBitMap, col);
+			break;
 		}
 	}
 
@@ -2958,6 +3016,81 @@ public class PixelDrawing {
 					d += incr2;
 				}
 				drawThickPoint(x, y, layerBitMap, col);
+			}
+		}
+	}
+
+	private void drawThickLine5(int x1, int y1, int x2, int y2, byte[][] layerBitMap, int col) {
+		// initialize the Bresenham algorithm
+		int dx = Math.abs(x2 - x1);
+		int dy = Math.abs(y2 - y1);
+		if (dx > dy) {
+			// initialize for lines that increment along X
+			int incr1 = 2 * dy;
+			int incr2 = 2 * (dy - dx);
+			int d = incr2;
+			int x, y, xend, yend, yincr;
+			if (x1 > x2) {
+				x = x2;
+				y = y2;
+				xend = x1;
+				yend = y1;
+			} else {
+				x = x1;
+				y = y1;
+				xend = x2;
+				yend = y2;
+			}
+			if (yend < y)
+				yincr = -1;
+			else
+				yincr = 1;
+			drawThickPoint5(x, y, layerBitMap, col);
+
+			// draw line that increments along X
+			while (x < xend) {
+				x++;
+				if (d < 0)
+					d += incr1;
+				else {
+					y += yincr;
+					d += incr2;
+				}
+				drawThickPoint5(x, y, layerBitMap, col);
+			}
+		} else {
+			// initialize for lines that increment along Y
+			int incr1 = 2 * dx;
+			int incr2 = 2 * (dx - dy);
+			int d = incr2;
+			int x, y, xend, yend, xincr;
+			if (y1 > y2) {
+				x = x2;
+				y = y2;
+				xend = x1;
+				yend = y1;
+			} else {
+				x = x1;
+				y = y1;
+				xend = x2;
+				yend = y2;
+			}
+			if (xend < x)
+				xincr = -1;
+			else
+				xincr = 1;
+			drawThickPoint5(x, y, layerBitMap, col);
+
+			// draw line that increments along X
+			while (y < yend) {
+				y++;
+				if (d < 0)
+					d += incr1;
+				else {
+					x += xincr;
+					d += incr2;
+				}
+				drawThickPoint5(x, y, layerBitMap, col);
 			}
 		}
 	}
@@ -4265,6 +4398,31 @@ public class PixelDrawing {
 				layerBitMap[y + 1][x >> 3] |= (1 << (x & 7));
 		}
 	}
+
+	private void drawThickPoint5(int x, int y, byte[][] layerBitMap, int col) {
+		if (layerBitMap == null) {
+			for (int dy = -2; dy <= 2; dy++) {
+				int yy = y + dy;
+				if (yy < 0 || yy >= sz.height) continue;
+				for (int dx = -2; dx <= 2; dx++) {
+					int xx = x + dx;
+					if (xx < 0 || xx >= sz.width) continue;
+					opaqueData[yy * sz.width + xx] = col;
+				}
+			}
+		} else {
+			for (int dy = -2; dy <= 2; dy++) {
+				int yy = y + dy;
+				if (yy < 0 || yy >= sz.height) continue;
+				for (int dx = -2; dx <= 2; dx++) {
+					int xx = x + dx;
+					if (xx < 0 || xx >= sz.width) continue;
+					layerBitMap[yy][xx >> 3] |= (1 << (xx & 7));
+				}
+			}
+		}
+	}
+
 
 	/**
 	 * Method to convert a database coordinate to screen coordinates.

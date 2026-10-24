@@ -584,6 +584,9 @@ public class EditWindow extends JPanel
 		Highlighter highlighter = getHighlighter();
 		highlighter.clear();
 
+		// clear the placement preview (re-set below if a component is being placed)
+		PixelDrawing.setPlacementPreview(null, 0, 0, 0);
+
 		// draw it
 		Point2D drawnLoc = screenToDatabase(oldx, oldy);
 		EditWindow.gridAlign(drawnLoc);
@@ -657,6 +660,8 @@ public class EditWindow extends JPanel
 			{
 				highlighter.addMessage(cell, "Rotated " + rotation, poly.getCenter());
 			}
+			// show the component shape with its terminals while placing
+			PixelDrawing.setPlacementPreview(np, drawnLoc.getX(), drawnLoc.getY(), defAngle);
 			repaint();
 		}
 		highlighter.finished();

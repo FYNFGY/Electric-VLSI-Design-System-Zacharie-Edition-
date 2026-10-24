@@ -206,6 +206,8 @@ public class WindowMenu {
     		// mnemonic keys available: AB DEFGHIJKLMNOPQRS UVWXYZ
             new EMenuItem("Toggle _Grid", 'G') { public void run() {
                 toggleGridCommand(); }},
+            new EMenuItem("Toggle _Wire Mode", 'W') { public void run() {
+                toggleWireModeCommand(); }},
             new EMenu("Me_asurements",
                 new EMenuItem("_Toggle Measurement Mode") { public void run() {
                 	ToolBar.setCursorMode(CursorMode.MEASURE); }},
@@ -698,6 +700,16 @@ public class WindowMenu {
         {
         	System.out.println("Cannot draw a grid in this type of window");
         }
+    }
+
+    /**
+     * This method toggles the JLCEDA-style wiring mode (crosshair cursor;
+     * click a terminal, wire, or empty space to start wiring; right-click or
+     * press W again to exit).
+     */
+    public static void toggleWireModeCommand()
+    {
+        ClickZoomWireListener.theOne.toggleWireMode();
     }
 
     /**
