@@ -781,6 +781,8 @@ public class ToolBar extends JToolBar
 	private static void changeCursorMode(CursorMode cm)
 	{
 		if (cm == CursorMode.CLICKZOOMWIRE && User.isRoutingMode()) cm = CursorMode.ROUTING;
+		// changing the cursor mode exits any active JLCEDA wiring mode
+		ClickZoomWireListener.theOne.cancelWireModeForListenerSwitch();
 		switch (cm)
 		{
 			case CLICKZOOMWIRE:

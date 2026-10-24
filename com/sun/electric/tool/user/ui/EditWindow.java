@@ -1235,6 +1235,8 @@ public class EditWindow extends JPanel
 		UserInterfaceMain.removeDatabaseChangeListener(this);
 		Highlighter.removeHighlightListener(this);
         UserInterfaceMain.freeHighlights(this);
+		// exit any active JLCEDA wiring mode (restores the crosshair cursor)
+		ClickZoomWireListener.theOne.cancelWireModeForListenerSwitch();
 	}
 
 	// ************************************* SCROLLING *************************************

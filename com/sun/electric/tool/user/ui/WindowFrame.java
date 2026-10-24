@@ -784,6 +784,10 @@ public class WindowFrame /*extends Observable */
 	public static void setListener(ElectricEventListener listener)
 	{
         curListener = listener;
+		// switching away from the click-zoom-wire listener exits any active
+		// JLCEDA wiring mode so the crosshair cursor never lingers
+        if (listener != ClickZoomWireListener.theOne)
+        	ClickZoomWireListener.theOne.cancelWireModeForListenerSwitch();
 //		curMouseListener = listener;
 //		curMouseMotionListener = listener;
 //		curMouseWheelListener = listener;

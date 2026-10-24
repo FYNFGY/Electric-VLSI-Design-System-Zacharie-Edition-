@@ -1854,6 +1854,30 @@ public class ClickZoomWireListener
     }
 
     /**
+     * Exit any JLCEDA wiring mode and restore the cursor. Called when the
+     * listener is switched away, a window closes, or the cursor mode changes,
+     * so the crosshair cursor never lingers.
+     */
+    public void cancelWireModeForListenerSwitch()
+    {
+        if (modeLeft != Mode.wireClickActive && modeLeft != Mode.wireModePending) return;
+        EditWindow wnd = EditWindow.getCurrent();
+        if (wnd != null)
+        {
+            if (modeLeft == Mode.wireClickActive)
+                cancelWireClickMode(wnd);
+            else
+                exitWireMode(wnd);
+        } else
+        {
+            modeLeft = Mode.none;
+            PixelDrawing.setSchematicWirePreview(false, null, null);
+            PixelDrawing.setSchematicContactPoints(null);
+            TopLevel.setCurrentCursor(null);
+        }
+    }
+
+    /**
      * Returns true if the given port is a wiring start point (yellow dot):
      * a dangling wire-end pin, a wire connection node, or an unconnected
      * terminal of a component (cell instance or primitive component such as
