@@ -48,6 +48,8 @@ import com.sun.electric.technology.technologies.Schematics;
 import com.sun.electric.tool.Job;
 import com.sun.electric.tool.drc.Schematic;
 import com.sun.electric.tool.user.GraphicsPreferences;
+import com.sun.electric.tool.user.Highlight;
+import com.sun.electric.tool.user.Highlighter;
 import com.sun.electric.tool.user.User;
 import com.sun.electric.tool.user.tecEdit.GeneralInfo;
 import com.sun.electric.tool.user.ui.EditWindow;
@@ -230,6 +232,8 @@ public class PixelDrawing {
 	private static boolean wireActive = false;
 	private static Point2D.Double wireStartDBPoint = null;
 	private static Point2D.Double wireDBPoint = null;
+	/** contact points while moving components (green crosses) */
+	private static List<Point2D.Double> contactPoints = null;
 
 	/**
 	 * Method to set the schematic wiring preview state for the overlay
@@ -240,6 +244,15 @@ public class PixelDrawing {
 		wireActive = active;
 		wireStartDBPoint = startPoint;
 		wireDBPoint = currentPoint;
+	}
+
+	/**
+	 * Method to set the contact points to be shown as green crosses while
+	 * moving components (null clears them).
+	 */
+	public static void setSchematicContactPoints(List<Point2D.Double> points)
+	{
+		contactPoints = points;
 	}
 
 	private static final boolean DEBUGRENDERTIMING = false;
@@ -412,6 +425,7 @@ public class PixelDrawing {
             g.setFont(f);
             wnd.getMouseOverHighlighter().showHighlights(wnd, g, false);
             wnd.getHighlighter().showHighlights(wnd, g, false);
+            drawHighlightMarkers(g, wnd);
 			return true;
 		}
 
@@ -1109,6 +1123,15 @@ public class PixelDrawing {
 		if (cell == null || !cell.isSchematic())
 			return;
 
+		// gather the set of ports that have arc connections
+		Set<PortInst> arcConnectedPorts = new HashSet<PortInst>();
+		for (Iterator<ArcInst> ait0 = cell.getArcs(); ait0.hasNext();)
+		{
+			ArcInst ai0 = ait0.next();
+			arcConnectedPorts.add(ai0.getHeadPortInst());
+			arcConnectedPorts.add(ai0.getTailPortInst());
+		}
+
 		// connectable terminals of cell instances:
 		// red dot when connected, yellow dot when unconnected
 		for (Iterator<NodeInst> it = cell.getNodes(); it.hasNext();)
@@ -1118,20 +1141,38 @@ public class PixelDrawing {
 			for (Iterator<PortInst> pit = ni.getPortInsts(); pit.hasNext();)
 			{
 				PortInst pi = pit.next();
-				boolean connected = false;
-				for (Iterator<Connection> cit = pi.getConnections(); cit.hasNext();)
-				{
-					cit.next();
-					connected = true;
-					break;
-				}
-				if (connected)
+				if (arcConnectedPorts.contains(pi))
 					g.setColor(new Color(216, 44, 44));
 				else
 					g.setColor(new Color(240, 140, 0));
 				EPoint c = pi.getCenter();
 				ScreenPoint sp = wnd.databaseToScreen(c.getX(), c.getY());
 				g.fillOval(sp.getIntX() - 3, sp.getIntY() - 3, 6, 6);
+			}
+		}
+
+		// wire connection nodes are also wiring terminals
+		g.setColor(new Color(240, 140, 0));
+		for (Iterator<NodeInst> it = cell.getNodes(); it.hasNext();)
+		{
+			NodeInst ni = it.next();
+			if (ni.getProto() != Schematics.tech().wireConNode) continue;
+			Point2D c = ni.getTrueCenter();
+			ScreenPoint sp = wnd.databaseToScreen(c.getX(), c.getY());
+			g.fillOval(sp.getIntX() - 3, sp.getIntY() - 3, 6, 6);
+		}
+
+		// contact points while moving components: green crosses
+		if (contactPoints != null)
+		{
+			g.setColor(new Color(0, 190, 0));
+			for (Point2D.Double pt : contactPoints)
+			{
+				ScreenPoint sp = wnd.databaseToScreen(pt.getX(), pt.getY());
+				int x = sp.getIntX();
+				int y = sp.getIntY();
+				g.drawLine(x - 5, y, x + 5, y);
+				g.drawLine(x, y - 5, x, y + 5);
 			}
 		}
 
@@ -1170,6 +1211,27 @@ public class PixelDrawing {
 		int y = sp.getIntY();
 		if (x >= 0 && x < sz.width) g.drawLine(x, 0, x, sz.height);
 		if (y >= 0 && y < sz.height) g.drawLine(0, y, sz.width, y);
+	}
+
+	/**
+	 * Draw a green cross at the center of every highlight so highlighted
+	 * locations (NCC links, DRC errors) are easy to find.
+	 */
+	private static void drawHighlightMarkers(Graphics2D g, EditWindow wnd)
+	{
+		Highlighter highlighter = wnd.getHighlighter();
+		g.setColor(new Color(0, 190, 0));
+		for (Highlight h : highlighter.getHighlights())
+		{
+			if (h.getCell() != wnd.getCell()) continue;
+			Point2D center = h.getHighlightCenter();
+			if (center == null) continue;
+			ScreenPoint sp = wnd.databaseToScreen(center.getX(), center.getY());
+			int x = sp.getIntX();
+			int y = sp.getIntY();
+			g.drawLine(x - 5, y, x + 5, y);
+			g.drawLine(x, y - 5, x, y + 5);
+		}
 	}
 
 	/**

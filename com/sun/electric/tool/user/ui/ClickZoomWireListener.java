@@ -43,6 +43,7 @@ import com.sun.electric.technology.ArcProto;
 import com.sun.electric.technology.DRCTemplate;
 import com.sun.electric.technology.Layer;
 import com.sun.electric.technology.Technology;
+import com.sun.electric.technology.technologies.Schematics;
 import com.sun.electric.tool.Job;
 import com.sun.electric.tool.JobException;
 import com.sun.electric.tool.drc.DRC;
@@ -879,6 +880,10 @@ public class ClickZoomWireListener
 	                ScreenPoint screenDelta = wnd.deltaDatabaseToScreen(dbDelta.getX(), dbDelta.getY());
 	                highlighter.setHighlightOffset(screenDelta.getIntX(), screenDelta.getIntY());
 
+	                // JLCEDA-style: mark contact points when yellow terminals
+	                // touch wires, terminals, or connection nodes while moving
+	                computeMoveContactPoints(wnd, cell, highlighter, dbDelta);
+
 	                // detect worst design-rule violation if moving just one object
 	                WorstSpacing ws = new WorstSpacing();
 	                List<Geometric> selected = highlighter.getHighlightedEObjs(true, true);
@@ -1360,6 +1365,9 @@ public class ClickZoomWireListener
 	        		return;
 	        	}
 
+	        	// clear contact markers after the move gesture ends
+	        	PixelDrawing.setSchematicContactPoints(null);
+
 	        	// ignore move if done within cancelMoveDelayMillis
 	            long curTime = evt.getWhen();
 	            if (debug) System.out.println("Time diff between click->release is: "+(curTime - leftMousePressedTimeStamp));
@@ -1698,6 +1706,7 @@ public class ClickZoomWireListener
         {
             router.cancelInteractiveRoute();
             PixelDrawing.setSchematicWirePreview(false, null, null);
+            PixelDrawing.setSchematicContactPoints(null);
         }
         if (modeRight == Mode.zoomBox || modeRight == Mode.zoomBoxSingleShot || modeRight == Mode.zoomOut ||
             modeLeft == Mode.drawBox || modeLeft == Mode.selectBox)
@@ -1733,21 +1742,26 @@ public class ClickZoomWireListener
 
     /**
      * Returns true if the given port is a wiring start point (yellow dot):
-     * a dangling wire-end pin, or an unconnected terminal of a cell instance.
+     * a dangling wire-end pin, a wire connection node, or an unconnected
+     * terminal of a cell instance.
      */
     private boolean isWiringStartPort(PortInst pi)
     {
         NodeInst ni = pi.getNodeInst();
         if (ni == null) return false;
         if (Schematic.isDanglingPin(ni)) return true;
+        if (ni.getProto() == Schematics.tech().wireConNode) return true;
         if (ni.isCellInstance())
+            return !isPortArcConnected(ni.getParent(), pi);
+        return false;
+    }
+
+    private boolean isPortArcConnected(Cell cell, PortInst pi)
+    {
+        for (Iterator<ArcInst> it = cell.getArcs(); it.hasNext();)
         {
-            for (Iterator<Connection> it = pi.getConnections(); it.hasNext();)
-            {
-                it.next();
-                return false; // has a connection: not a wiring start
-            }
-            return true; // unconnected terminal
+            ArcInst ai = it.next();
+            if (ai.getHeadPortInst() == pi || ai.getTailPortInst() == pi) return true;
         }
         return false;
     }
@@ -1800,11 +1814,105 @@ public class ClickZoomWireListener
         return null;
     }
 
+    /**
+     * Compute contact points between the moved nodes' terminals (at their
+     * ghost positions) and fixed wires, terminals, or connection nodes.
+     */
+    private void computeMoveContactPoints(EditWindow wnd, Cell cell, Highlighter highlighter, Point2D dbDelta)
+    {
+        if (!cell.isSchematic())
+        {
+            PixelDrawing.setSchematicContactPoints(null);
+            return;
+        }
+        Point2D tol = wnd.deltaScreenToDatabase(6, 6);
+        double tolDist = Math.abs(tol.getX());
+        List<Point2D.Double> contacts = new ArrayList<Point2D.Double>();
+        List<NodeInst> movedNodes = new ArrayList<NodeInst>();
+        List<Geometric> selected = highlighter.getHighlightedEObjs(true, true);
+        for (Geometric g : selected)
+        {
+            NodeInst ni = null;
+            if (g instanceof NodeInst) ni = (NodeInst)g;
+            if (ni != null && !movedNodes.contains(ni)) movedNodes.add(ni);
+        }
+        if (movedNodes.isEmpty())
+        {
+            PixelDrawing.setSchematicContactPoints(null);
+            return;
+        }
+        List<ArcInst> fixedArcs = new ArrayList<ArcInst>();
+        List<PortInst> fixedPorts = new ArrayList<PortInst>();
+        for (Iterator<ArcInst> ait = cell.getArcs(); ait.hasNext();)
+        {
+            ArcInst ai = ait.next();
+            boolean bothEndsMoved = movedNodes.contains(ai.getHeadPortInst().getNodeInst())
+                && movedNodes.contains(ai.getTailPortInst().getNodeInst());
+            if (!bothEndsMoved) fixedArcs.add(ai);
+        }
+        for (Iterator<NodeInst> nit = cell.getNodes(); nit.hasNext();)
+        {
+            NodeInst ni = nit.next();
+            if (movedNodes.contains(ni)) continue;
+            if (!ni.isCellInstance() && ni.getProto() != Schematics.tech().wireConNode
+                && !Schematic.isDanglingPin(ni)) continue;
+            for (Iterator<PortInst> pit = ni.getPortInsts(); pit.hasNext();)
+                fixedPorts.add(pit.next());
+        }
+        for (NodeInst mni : movedNodes)
+        {
+            for (Iterator<PortInst> pit = mni.getPortInsts(); pit.hasNext();)
+            {
+                PortInst pi = pit.next();
+                EPoint c = pi.getCenter();
+                double gx = c.getX() + dbDelta.getX();
+                double gy = c.getY() + dbDelta.getY();
+                for (PortInst fpi : fixedPorts)
+                {
+                    EPoint fc = fpi.getCenter();
+                    if (Point2D.distance(gx, gy, fc.getX(), fc.getY()) <= tolDist)
+                    {
+                        contacts.add(new Point2D.Double((gx + fc.getX()) / 2, (gy + fc.getY()) / 2));
+                        break;
+                    }
+                }
+                for (ArcInst fai : fixedArcs)
+                {
+                    Point2D proj = closestPointOnArc(fai, new Point2D.Double(gx, gy));
+                    if (proj != null && Point2D.distance(gx, gy, proj.getX(), proj.getY()) <= tolDist)
+                    {
+                        contacts.add(new Point2D.Double(proj.getX(), proj.getY()));
+                        break;
+                    }
+                }
+            }
+        }
+        PixelDrawing.setSchematicContactPoints(contacts.isEmpty() ? null : contacts);
+    }
+
+    /**
+     * Returns the closest point on the arc's segment to point p (null for
+     * zero-length arcs).
+     */
+    private static Point2D closestPointOnArc(ArcInst ai, Point2D p)
+    {
+        double x1 = ai.getHeadLocation().getX(), y1 = ai.getHeadLocation().getY();
+        double x2 = ai.getTailLocation().getX(), y2 = ai.getTailLocation().getY();
+        double dx = x2 - x1, dy = y2 - y1;
+        double len2 = dx * dx + dy * dy;
+        if (len2 == 0) return null;
+        double t = ((p.getX() - x1) * dx + (p.getY() - y1) * dy) / len2;
+        if (t < 0) t = 0;
+        else if (t > 1) t = 1;
+        return new Point2D.Double(x1 + t * dx, y1 + t * dy);
+    }
+
     private void cancelWireClickMode(EditWindow wnd)
     {
         router.cancelInteractiveRoute();
         modeLeft = Mode.none;
         PixelDrawing.setSchematicWirePreview(false, null, null);
+        PixelDrawing.setSchematicContactPoints(null);
         wnd.repaint();
     }
 

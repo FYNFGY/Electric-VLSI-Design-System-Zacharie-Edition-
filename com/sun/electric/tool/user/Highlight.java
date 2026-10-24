@@ -305,6 +305,13 @@ public abstract class Highlight implements Cloneable{
     public ElectricObject getElectricObject() { return null; }
 
     /**
+     * Method to return the center of this highlight (used to draw location
+     * markers on top of highlights).
+     * @return the center of this highlight, or null if it has no single point.
+     */
+    public Point2D getHighlightCenter() { return null; }
+
+    /**
 	 * Method to tell whether a point is over this Highlight.
 	 * @param wnd the window being examined.
 	 * @param x the X screen coordinate of the point.
@@ -684,6 +691,9 @@ public abstract class Highlight implements Cloneable{
         public String getInfo() { return msg; }
 
         @Override
+        public Point2D getHighlightCenter() { return loc; }
+
+        @Override
         public void showInternalHighlight(EditWindow wnd, Graphics g, long highOffX, long highOffY,
                                           boolean onlyHighlight)
         {
@@ -758,6 +768,13 @@ class HighlightPoly extends Highlight
     }
 
     @Override
+    public Point2D getHighlightCenter()
+    {
+        Rectangle2D b = polygon.getBounds2D();
+        return new Point2D.Double(b.getCenterX(), b.getCenterY());
+    }
+
+    @Override
     public void showInternalHighlight(EditWindow wnd, Graphics g, long highOffX, long highOffY,
                                       boolean onlyHighlight)
     {
@@ -817,6 +834,9 @@ class HighlightLine extends Highlight
         this.thickLine = thick;
         this.onlyThis = onlyThis != null ? new WeakReference<WindowFrame>(onlyThis) : null;
     }
+
+    @Override
+    public Point2D getHighlightCenter() { return center; }
 
     @Override
     public void showInternalHighlight(EditWindow wnd, Graphics g, long highOffX, long highOffY,
@@ -893,6 +913,12 @@ class HighlightArea extends Highlight
         super(c, col, false);
 		bounds = new Rectangle2D.Double();
 		bounds.setRect(area);
+    }
+
+    @Override
+    public Point2D getHighlightCenter()
+    {
+        return new Point2D.Double(bounds.getCenterX(), bounds.getCenterY());
     }
 
     @Override
@@ -1044,6 +1070,14 @@ class HighlightEOBJ extends Highlight
 
     @Override
 	public ElectricObject getElectricObject() { return eobj; }
+
+    @Override
+    public Point2D getHighlightCenter()
+    {
+        if (eobj instanceof Geometric)
+            return ((Geometric)eobj).getTrueCenter();
+        return null;
+    }
 
     @Override
 	public boolean isHighlightEOBJ() { return true; }

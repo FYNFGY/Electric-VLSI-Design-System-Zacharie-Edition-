@@ -373,6 +373,9 @@ public class UserInterfaceMain extends AbstractUserInterface {
      * Method is called when initialization was finished.
      */
     public void finishInitialization() {
+        // use green for all highlights (selection, NCC links, DRC errors)
+        User.setColor(User.ColorPrefType.HIGHLIGHT, new Color(0, 180, 0).getRGB());
+
         // default is last used dir
         if (ClientOS.isOSLinux()) {
             // switch to current dir
