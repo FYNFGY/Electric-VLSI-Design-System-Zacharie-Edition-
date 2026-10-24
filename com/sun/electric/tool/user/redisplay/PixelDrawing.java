@@ -237,20 +237,34 @@ public class PixelDrawing {
 	private static Point2D.Double wireDBPoint = null;
 	/** contact points while moving components (green crosses) */
 	private static List<Point2D.Double> contactPoints = null;
-	/** component being placed (palette placement preview) */
-	private static NodeProto previewProto = null;
-	private static double previewX, previewY;
-	private static int previewAngle;
+	/** components being placed (palette/paste preview dummies) */
+	private static List<NodeInst> previewDummies = null;
 
 	/**
 	 * Method to set the component placement preview (null proto clears it).
 	 */
 	public static void setPlacementPreview(NodeProto np, double x, double y, int angle)
 	{
-		previewProto = np;
-		previewX = x;
-		previewY = y;
-		previewAngle = angle;
+		if (np == null)
+		{
+			previewDummies = null;
+			return;
+		}
+		EditingPreferences ep = EditingPreferences.getInstance();
+		Orientation orient = Orientation.fromJava(angle, angle >= 3600, false);
+		NodeInst dummy = NodeInst.makeDummyInstance(np, ep, 0,
+			EPoint.fromLambda(x, y), np.getDefWidth(ep), np.getDefHeight(ep), orient);
+		List<NodeInst> list = new ArrayList<NodeInst>();
+		if (dummy != null) list.add(dummy);
+		previewDummies = list;
+	}
+
+	/**
+	 * Method to set multiple placement preview dummies (paste ghost).
+	 */
+	public static void setPlacementPreviewDummies(List<NodeInst> dummies)
+	{
+		previewDummies = dummies;
 	}
 
 	/**
@@ -1183,7 +1197,7 @@ public class PixelDrawing {
 					g.setColor(new Color(240, 140, 0));
 				EPoint c = pi.getCenter();
 				ScreenPoint sp = wnd.databaseToScreen(c.getX(), c.getY());
-				g.fillOval(sp.getIntX() - 3, sp.getIntY() - 3, 6, 6);
+				g.fillOval(sp.getIntX() - 4, sp.getIntY() - 4, 8, 8);
 			}
 		}
 
@@ -1196,7 +1210,7 @@ public class PixelDrawing {
 			if (((PrimitiveNode)ni.getProto()).getFunction() != PrimitiveNode.Function.CONNECT) continue;
 			Point2D c = ni.getTrueCenter();
 			ScreenPoint sp = wnd.databaseToScreen(c.getX(), c.getY());
-			g.fillOval(sp.getIntX() - 3, sp.getIntY() - 3, 6, 6);
+			g.fillOval(sp.getIntX() - 4, sp.getIntY() - 4, 8, 8);
 		}
 
 		// contact points while moving components: green crosses
@@ -1214,31 +1228,28 @@ public class PixelDrawing {
 		}
 
 		// component placement preview: outline, name, and yellow terminals
-		if (previewProto != null)
+		if (previewDummies != null)
 		{
-			EditingPreferences ep = EditingPreferences.getInstance();
-			Orientation orient = Orientation.fromJava(previewAngle, previewAngle >= 3600, false);
-			NodeInst dummy = NodeInst.makeDummyInstance(previewProto, ep, 0,
-				EPoint.fromLambda(0, 0), previewProto.getDefWidth(ep), previewProto.getDefHeight(ep), orient);
-			if (dummy != null)
+			for (NodeInst dummy : previewDummies)
 			{
+				if (dummy == null) continue;
 				Rectangle2D b = dummy.getBounds();
-				ScreenPoint s1 = wnd.databaseToScreen(previewX + b.getMinX(), previewY + b.getMaxY());
-				ScreenPoint s2 = wnd.databaseToScreen(previewX + b.getMaxX(), previewY + b.getMinY());
+				ScreenPoint s1 = wnd.databaseToScreen(b.getMinX(), b.getMaxY());
+				ScreenPoint s2 = wnd.databaseToScreen(b.getMaxX(), b.getMinY());
 				g.setColor(new Color(0, 120, 215));
 				g.drawRect(s1.getIntX(), s1.getIntY(),
 					Math.max(1, s2.getIntX() - s1.getIntX()), Math.max(1, s2.getIntY() - s1.getIntY()));
-				g.drawString(previewProto.describe(false), s1.getIntX(), s1.getIntY() - 4);
+				g.drawString(dummy.getProto().describe(false), s1.getIntX(), s1.getIntY() - 4);
 
 				g.setColor(new Color(240, 140, 0));
-				for (Iterator<PortProto> ppit = previewProto.getPorts(); ppit.hasNext();)
+				for (Iterator<PortProto> ppit = dummy.getProto().getPorts(); ppit.hasNext();)
 				{
 					PortProto pp = ppit.next();
 					Poly portPoly = dummy.getShapeOfPort(pp);
 					if (portPoly == null) continue;
 					Rectangle2D pb = portPoly.getBounds2D();
-					ScreenPoint sp = wnd.databaseToScreen(previewX + pb.getCenterX(), previewY + pb.getCenterY());
-					g.fillOval(sp.getIntX() - 3, sp.getIntY() - 3, 6, 6);
+					ScreenPoint sp = wnd.databaseToScreen(pb.getCenterX(), pb.getCenterY());
+					g.fillOval(sp.getIntX() - 4, sp.getIntY() - 4, 8, 8);
 				}
 			}
 		}
@@ -1255,7 +1266,7 @@ public class PixelDrawing {
 				if (ni == null || !Schematic.isDanglingPin(ni)) continue;
 				EPoint c = pi.getCenter();
 				ScreenPoint sp = wnd.databaseToScreen(c.getX(), c.getY());
-				g.fillOval(sp.getIntX() - 3, sp.getIntY() - 3, 6, 6);
+				g.fillOval(sp.getIntX() - 4, sp.getIntY() - 4, 8, 8);
 			}
 		}
 

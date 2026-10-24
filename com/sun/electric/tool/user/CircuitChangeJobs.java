@@ -1926,8 +1926,29 @@ public static void autoConnectOverlappingPorts(Cell cell, List<NodeInst> movedNo
 		for (Iterator<ArcInst> ait = cell.getArcs(); ait.hasNext();)
 			allArcs.add(ait.next());
 
+		// set of ports that already have a connection: they never auto-connect
+		Set<PortInst> arcConnectedPorts = new HashSet<PortInst>();
+		for (ArcInst ai : allArcs)
+		{
+			arcConnectedPorts.add(ai.getHeadPortInst());
+			arcConnectedPorts.add(ai.getTailPortInst());
+		}
+
 		for (NodeInst mni : movedNodes)
 		{
+			// wire pins and connection nodes are part of the wiring:
+			// they do not participate in auto-connect
+			if (!mni.isCellInstance())
+			{
+				NodeProto np = mni.getProto();
+				if (np instanceof PrimitiveNode)
+				{
+					PrimitiveNode.Function fn = ((PrimitiveNode)np).getFunction();
+					if (fn == PrimitiveNode.Function.PIN || fn == PrimitiveNode.Function.CONNECT
+						|| fn == PrimitiveNode.Function.CONTACT || fn == PrimitiveNode.Function.NODE)
+						continue;
+				} else continue;
+			}
 			// port-on-port contacts
 			for (Iterator<NodeInst> nit = cell.getNodes(); nit.hasNext();)
 			{
@@ -1938,11 +1959,13 @@ public static void autoConnectOverlappingPorts(Cell cell, List<NodeInst> movedNo
 				{
 					PortInst pi = pit.next();
 					if (isBusPort(pi)) continue;
+					if (arcConnectedPorts.contains(pi)) continue; // already wired: never auto-connect
 					Rectangle2D bounds = pi.getPoly().getBounds2D();
 					for (Iterator<PortInst> opit = oni.getPortInsts(); opit.hasNext();)
 					{
 						PortInst opi = opit.next();
 						if (isBusPort(opi)) continue;
+						if (arcConnectedPorts.contains(opi)) continue; // already wired: never auto-connect
 						if (netlist.getNetwork(pi) == netlist.getNetwork(opi)) continue;
 						boolean touches = opi.getPoly().getBounds2D().intersects(bounds)
 							|| Point2D.distance(pi.getCenter().getX(), pi.getCenter().getY(),
@@ -1957,16 +1980,7 @@ public static void autoConnectOverlappingPorts(Cell cell, List<NodeInst> movedNo
 			{
 				PortInst pi = pit.next();
 				if (isBusPort(pi)) continue;
-				boolean alreadyConnected = false;
-				for (ArcInst ai : allArcs)
-				{
-					if (ai.getHeadPortInst() == pi || ai.getTailPortInst() == pi)
-					{
-						alreadyConnected = true;
-						break;
-					}
-				}
-				if (alreadyConnected) continue;
+				if (arcConnectedPorts.contains(pi)) continue; // already wired: never auto-connect
 				Point2D pc = pi.getCenter();
 				for (ArcInst ai : allArcs)
 				{
@@ -2096,6 +2110,11 @@ public static boolean isBusPortProto(PrimitivePort pp)
 			// nodes moved in this job, used for JLCEDA-style auto-connect
 			List<NodeInst> movedNodesForAutoConnect = new ArrayList<NodeInst>();
 
+			// moving wires never triggers auto-connect
+			boolean moveHasArcs = false;
+			for (ElectricObject eobj : highlightedObjs)
+				if (eobj instanceof ArcInst) { moveHasArcs = true; break; }
+
 			// special case if moving only one node
 			if (highlightedObjs.size() == 1 && highlightedText.size() == 0)
 			{
@@ -2115,7 +2134,7 @@ public static boolean isBusPortProto(PrimitivePort pp)
 					ni.move(dX, dY);
 					movedNodesForAutoConnect.add(ni);
 					if (verbose) System.out.println("Moved node " + ni.describe(false) + " by (" + TextUtils.formatDistance(dX) + "," + TextUtils.formatDistance(dY) + ")");
-					autoConnectOverlappingPorts(cell, movedNodesForAutoConnect);
+					if (!moveHasArcs) autoConnectOverlappingPorts(cell, movedNodesForAutoConnect);
 					updateStatusBar = true;
 					fieldVariableChanged("updateStatusBar");
 					return true;
@@ -2211,7 +2230,7 @@ public static boolean isBusPortProto(PrimitivePort pp)
 				if (verbose) System.out.println("Moved multiple objects by (" + TextUtils.formatDistance(dX) +
 					"," + TextUtils.formatDistance(dY) + ")");
 				updateStatusBar = true;
-				autoConnectOverlappingPorts(cell, movedNodesForAutoConnect);
+				if (!moveHasArcs) autoConnectOverlappingPorts(cell, movedNodesForAutoConnect);
 				fieldVariableChanged("updateStatusBar");
 				return true;
 			}
@@ -2432,7 +2451,7 @@ public static boolean isBusPortProto(PrimitivePort pp)
 				String msg = (moveNodeWithExport) ? "Moved multiple objects (" : "Moved text (";
 				System.out.println(msg + TextUtils.formatDistance(dX) + "," + TextUtils.formatDistance(dY) + ")");
 			}
-			autoConnectOverlappingPorts(cell, movedNodesForAutoConnect);
+			if (!moveHasArcs) autoConnectOverlappingPorts(cell, movedNodesForAutoConnect);
 			updateStatusBar = true;
 			fieldVariableChanged("updateStatusBar");
 			return true;

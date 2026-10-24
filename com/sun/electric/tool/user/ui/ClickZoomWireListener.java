@@ -1713,6 +1713,11 @@ public class ClickZoomWireListener
 			if (cell == null) return;
 
             boolean redrawMouseOver = false;
+			// JLCEDA-style: W toggles wiring mode
+			if (chr == KeyEvent.VK_W && !evt.isControlDown() && !evt.isAltDown() && !evt.isShiftDown()) {
+                toggleWireMode();
+                return;
+            }
 			// cancel current mode
 			if (chr == KeyEvent.VK_ESCAPE) {
                 escapePressed(wnd);
@@ -1855,14 +1860,8 @@ public class ClickZoomWireListener
         {
             PrimitiveNode.Function fn = ((PrimitiveNode)ni.getProto()).getFunction();
             if (fn == PrimitiveNode.Function.CONNECT) return true; // wire connection node
+            if (fn == PrimitiveNode.Function.PIN) return true;      // wire pins and labeled pins
             if (fn == PrimitiveNode.Function.CONTACT || fn == PrimitiveNode.Function.NODE) return false;
-            if (fn == PrimitiveNode.Function.PIN)
-            {
-                // only labeled pins (ground/power tags) are wiring starts
-                Name nameKey = ni.getNameKey();
-                boolean labeled = ni.hasExports() || (nameKey != null && !nameKey.isTempname());
-                if (!labeled) return false;
-            }
         } else if (!ni.isCellInstance()) return false;
         return !isPortArcConnected(ni.getParent(), pi);
     }
@@ -1883,7 +1882,7 @@ public class ClickZoomWireListener
      */
     private boolean isClickOnPortDot(EditWindow wnd, PortInst pi, Point2D dbClick)
     {
-        Point2D extra = wnd.deltaScreenToDatabase(4, 4);
+        Point2D extra = wnd.deltaScreenToDatabase(8, 8);
         double tol = Math.abs(extra.getX());
         EPoint c = pi.getCenter();
         return Point2D.distance(c.getX(), c.getY(), dbClick.getX(), dbClick.getY()) <= tol;

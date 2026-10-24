@@ -32,6 +32,8 @@ import com.sun.electric.database.hierarchy.View;
 import com.sun.electric.database.id.CellId;
 import com.sun.electric.database.id.IdManager;
 import com.sun.electric.database.prototype.NodeProto;
+import com.sun.electric.tool.user.redisplay.PixelDrawing;
+import com.sun.electric.technology.PrimitiveNode;
 import com.sun.electric.database.topology.ArcInst;
 import com.sun.electric.database.topology.Geometric;
 import com.sun.electric.database.topology.NodeInst;
@@ -1704,6 +1706,32 @@ public class Clipboard //implements ClipboardOwner
 				highlighter.addLine(endPoint, p1, cell);
 				highlighter.addLine(endPoint, p2, cell);
 			}
+			// JLCEDA-style: show the components with yellow terminals while pasting
+			if (wnd.getCell() != null && wnd.getCell().isSchematic())
+			{
+				List<NodeInst> dummies = new ArrayList<NodeInst>();
+				for (Geometric geom : geomList)
+				{
+					if (!(geom instanceof NodeInst)) continue;
+					NodeInst ni = (NodeInst)geom;
+					if (!ni.isCellInstance())
+					{
+						NodeProto np = ni.getProto();
+						if (np instanceof PrimitiveNode)
+						{
+							PrimitiveNode.Function fn = ((PrimitiveNode)np).getFunction();
+							if (fn == PrimitiveNode.Function.PIN || fn == PrimitiveNode.Function.CONNECT
+								|| fn == PrimitiveNode.Function.CONTACT || fn == PrimitiveNode.Function.NODE)
+								continue;
+						} else continue;
+					}
+					NodeInst dummy = NodeInst.makeDummyInstance(ni.getProto(), ep, ni.getTechSpecific(),
+						EPoint.fromLambda(ni.getAnchorCenterX() + oX, ni.getAnchorCenterY() + oY),
+						ni.getProto().getDefWidth(ep), ni.getProto().getDefHeight(ep), ni.getOrient());
+					if (dummy != null) dummies.add(dummy);
+				}
+				PixelDrawing.setPlacementPreviewDummies(dummies.isEmpty() ? null : dummies);
+			}
 			highlighter.finished();
 		}
 
@@ -1745,6 +1773,7 @@ public class Clipboard //implements ClipboardOwner
 			Point2D delta = getDelta(mouseDB, ctrl);
 			showList(delta);
 
+			PixelDrawing.setPlacementPreviewDummies(null);
 			WindowFrame.setListener(currentListener);
 			wnd.getHighlighter().popHighlight();
 			Cell cell = WindowFrame.needCurCell();
@@ -1806,6 +1835,7 @@ public class Clipboard //implements ClipboardOwner
 		private void abort() {
 			wnd.getHighlighter().clear();
 			wnd.getHighlighter().finished();
+			PixelDrawing.setPlacementPreviewDummies(null);
 			WindowFrame.setListener(currentListener);
 			wnd.repaint();
 		}

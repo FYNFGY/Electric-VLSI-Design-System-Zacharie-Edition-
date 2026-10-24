@@ -206,7 +206,7 @@ public class WindowMenu {
     		// mnemonic keys available: AB DEFGHIJKLMNOPQRS UVWXYZ
             new EMenuItem("Toggle _Grid", 'G') { public void run() {
                 toggleGridCommand(); }},
-            new EMenuItem("Toggle _Wire Mode", 'W') { public void run() {
+            new EMenuItem("Toggle _Wire Mode") { public void run() {
                 toggleWireModeCommand(); }},
             new EMenu("Me_asurements",
                 new EMenuItem("_Toggle Measurement Mode") { public void run() {
