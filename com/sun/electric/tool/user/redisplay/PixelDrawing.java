@@ -633,6 +633,10 @@ public class PixelDrawing {
 		objectCount = 0;
 		lastRefreshTime = System.currentTimeMillis();
 
+		// draw the grid first so that cell content renders on top of it
+		if (cell != null && wnd.isGrid())
+			drawGrid(wnd, drawing.da);
+
 		Set<CellId> changedCellsCopy;
 		synchronized (changedCells) {
 			changedCellsCopy = new HashSet<CellId>(changedCells);
@@ -659,10 +663,6 @@ public class PixelDrawing {
 
 		// merge transparent image into opaque one
 		synchronized (img) {
-			// if a grid is requested, overlay it
-			if (cell != null && wnd.isGrid())
-				drawGrid(wnd, drawing.da);
-
 			// combine transparent and opaque colors into a final image
 			composite(renderBounds);
 		}
@@ -1109,8 +1109,8 @@ public class PixelDrawing {
 		if (cell == null || !cell.isSchematic())
 			return;
 
-		// connectable terminals of cell instances
-		g.setColor(new Color(216, 44, 44));
+		// connectable terminals of cell instances:
+		// red dot when connected, yellow dot when unconnected
 		for (Iterator<NodeInst> it = cell.getNodes(); it.hasNext();)
 		{
 			NodeInst ni = it.next();
@@ -1118,6 +1118,17 @@ public class PixelDrawing {
 			for (Iterator<PortInst> pit = ni.getPortInsts(); pit.hasNext();)
 			{
 				PortInst pi = pit.next();
+				boolean connected = false;
+				for (Iterator<Connection> cit = pi.getConnections(); cit.hasNext();)
+				{
+					cit.next();
+					connected = true;
+					break;
+				}
+				if (connected)
+					g.setColor(new Color(216, 44, 44));
+				else
+					g.setColor(new Color(240, 140, 0));
 				EPoint c = pi.getCenter();
 				ScreenPoint sp = wnd.databaseToScreen(c.getX(), c.getY());
 				g.fillOval(sp.getIntX() - 3, sp.getIntY() - 3, 6, 6);

@@ -42,9 +42,7 @@ import com.sun.electric.database.variable.UserInterface;
 import com.sun.electric.technology.ArcProto;
 import com.sun.electric.technology.DRCTemplate;
 import com.sun.electric.technology.Layer;
-import com.sun.electric.technology.PrimitiveNode;
 import com.sun.electric.technology.Technology;
-import com.sun.electric.technology.technologies.Schematics;
 import com.sun.electric.tool.Job;
 import com.sun.electric.tool.JobException;
 import com.sun.electric.tool.drc.DRC;
@@ -123,7 +121,7 @@ public class ClickZoomWireListener
     private long rightMousePressedTimeStamp;    /* log of last left mouse pressed time */
     private ElectricObject wiringTarget;        /* last highlight user switched to possibly wire to */
     private ElectricObject pressedObject;       /* object under cursor when the left button went down */
-    private NodeInst blankWirePin;              /* temporary pin for wiring started on empty space */
+
 
     // wiring stuff
     private InteractiveRouter router;           /* router used to connect objects */
@@ -443,6 +441,12 @@ public class ClickZoomWireListener
 
                 // JLCEDA-style click-click wiring: second click commits the wire
                 if (modeLeft == Mode.wireClickActive) {
+                    if (startObj instanceof PortInst && !((PortInst)startObj).isLinked())
+                    {
+                        // start port was deleted (e.g. by undo): cancel the wire
+                        cancelWireClickMode(wnd);
+                        return;
+                    }
                     Highlight h = highlighter.findObject(dbClick, wnd, false, false, false, true, false, specialSelect, false, true);
                     ElectricObject commitObj = (h != null) ? h.getElectricObject() : null;
                     if (commitObj == startObj) commitObj = null;
@@ -458,7 +462,6 @@ public class ClickZoomWireListener
                     EditWindow.gridAlign(dbClick);
                     router.makeRoute(wnd, startCell, startObj, endObj, dbClick);
                     wiringTarget = null;
-                    blankWirePin = null;
                     modeLeft = Mode.none;
                     PixelDrawing.setSchematicWirePreview(false, null, null);
                     wnd.repaint();
@@ -1360,11 +1363,13 @@ public class ClickZoomWireListener
 	        	// ignore move if done within cancelMoveDelayMillis
 	            long curTime = evt.getWhen();
 	            if (debug) System.out.println("Time diff between click->release is: "+(curTime - leftMousePressedTimeStamp));
-	            // JLCEDA-style click-click wiring: a click (no drag) on a port starts wiring
+	            // JLCEDA-style click-click wiring: only a click on the yellow dot
+	            // of an unconnected terminal starts wiring
 	            if (modeLeft == Mode.move && pressedObject instanceof PortInst
-	            	&& (curTime - leftMousePressedTimeStamp) < cancelMoveDelayMillis) {
+	            	&& (curTime - leftMousePressedTimeStamp) < cancelMoveDelayMillis
+	            	&& isWiringStartPort((PortInst)pressedObject)
+	            	&& isClickOnPortDot(wnd, (PortInst)pressedObject, dbMouse)) {
 	                beginWireClickMode(wnd, highlighter, cell, (PortInst)pressedObject, dbMouse);
-	                modeLeft = Mode.none;
 	                return;
 	            }
 	            if (modeLeft == Mode.move || modeLeft == Mode.stickyMove) {
@@ -1402,14 +1407,6 @@ public class ClickZoomWireListener
 	                    if (modeLeft == Mode.selectBox) {
 	                        if (!invertSelection)
 	                            highlighter.clear();
-	                        // JLCEDA-style: a single click on empty space starts wiring there
-	                        if (onePoint && cell.isSchematic() && !ctrlPressed && !invertSelection && pressedObject == null) {
-	                            startBlankWireClickMode(wnd, cell, dbMouse);
-	                            modeLeft = Mode.none;
-	                            wnd.clearDoingAreaDrag();
-	                            wnd.repaint();
-	                            return;
-	                        }
 	                        highlighter.selectArea(wnd, minSelX, maxSelX, minSelY, maxSelY, invertSelection, specialSelect);
 	                    }
 	                    if (modeLeft == Mode.drawBox) {
@@ -1700,7 +1697,6 @@ public class ClickZoomWireListener
         if (modeLeft == Mode.wireClickActive)
         {
             router.cancelInteractiveRoute();
-            killBlankWirePin();
             PixelDrawing.setSchematicWirePreview(false, null, null);
         }
         if (modeRight == Mode.zoomBox || modeRight == Mode.zoomBoxSingleShot || modeRight == Mode.zoomOut ||
@@ -1735,33 +1731,47 @@ public class ClickZoomWireListener
         wnd.repaint();
     }
 
-    private void startBlankWireClickMode(EditWindow wnd, Cell cell, Point2D dbMouse)
+    /**
+     * Returns true if the given port is a wiring start point (yellow dot):
+     * a dangling wire-end pin, or an unconnected terminal of a cell instance.
+     */
+    private boolean isWiringStartPort(PortInst pi)
     {
-        new MakeWirePin(cell, dbMouse.getX(), dbMouse.getY());
+        NodeInst ni = pi.getNodeInst();
+        if (ni == null) return false;
+        if (Schematic.isDanglingPin(ni)) return true;
+        if (ni.isCellInstance())
+        {
+            for (Iterator<Connection> it = pi.getConnections(); it.hasNext();)
+            {
+                it.next();
+                return false; // has a connection: not a wiring start
+            }
+            return true; // unconnected terminal
+        }
+        return false;
     }
 
-    void wireFromPinCreated(EditWindow wnd, NodeInst pin)
+    /**
+     * Returns true if the click is on the port's dot itself (not just anywhere
+     * on the component).
+     */
+    private boolean isClickOnPortDot(EditWindow wnd, PortInst pi, Point2D dbClick)
     {
-        blankWirePin = pin;
-        Highlighter highlighter = wnd.getHighlighter();
-        highlighter.clear();
-        PortInst pi = pin.getOnlyPortInst();
-        highlighter.addElectricObject(pi, wnd.getCell());
-        highlighter.finished();
-        startCell = wnd.getCell();
-        startObj = pi;
-        router.startInteractiveRoute(wnd);
-        currentArcWhenWiringPressed = User.getUserTool().getCurrentArcProto();
-        modeLeft = Mode.wireClickActive;
-        Point2D dbMouse = wnd.screenToDatabase(mouseX, mouseY);
+        Point2D extra = wnd.deltaScreenToDatabase(4, 4);
+        double tol = Math.abs(extra.getX());
         EPoint c = pi.getCenter();
-        PixelDrawing.setSchematicWirePreview(true,
-                new Point2D.Double(c.getX(), c.getY()), new Point2D.Double(dbMouse.getX(), dbMouse.getY()));
-        wnd.repaint();
+        return Point2D.distance(c.getX(), c.getY(), dbClick.getX(), dbClick.getY()) <= tol;
     }
 
     private void updateWirePreview(EditWindow wnd, Highlighter highlighter, Point2D dbMouse)
     {
+        // the start port may have been deleted (e.g. by undo): cancel the wire
+        if (startObj instanceof PortInst && !((PortInst)startObj).isLinked())
+        {
+            cancelWireClickMode(wnd);
+            return;
+        }
         // update the alignment guide lines immediately
         Point2D startPt = getWireStartPoint();
         if (startPt != null)
@@ -1793,41 +1803,9 @@ public class ClickZoomWireListener
     private void cancelWireClickMode(EditWindow wnd)
     {
         router.cancelInteractiveRoute();
-        killBlankWirePin();
         modeLeft = Mode.none;
         PixelDrawing.setSchematicWirePreview(false, null, null);
         wnd.repaint();
-    }
-
-    private void killBlankWirePin()
-    {
-        if (blankWirePin == null) return;
-        NodeInst pin = blankWirePin;
-        blankWirePin = null;
-        new KillWirePin(pin);
-    }
-
-    /**
-     * Job to remove the temporary wire pin when click-click wiring is cancelled.
-     * Kept serializable: only holds database objects.
-     */
-    private static class KillWirePin extends Job
-    {
-        private final NodeInst pin;
-
-        KillWirePin(NodeInst pin)
-        {
-            super("Kill Wire Pin", User.getUserTool(), Job.Type.CHANGE, null, null, Job.Priority.USER);
-            this.pin = pin;
-            startJob();
-        }
-
-        @Override
-        public boolean doIt() throws JobException
-        {
-            pin.kill();
-            return true;
-        }
     }
 
     private PortInst findDanglingPortUnderMouse(EditWindow wnd, Point2D dbClick)
@@ -1870,45 +1848,6 @@ public class ClickZoomWireListener
         });
         popup.add(item);
         popup.show(wnd, x, y);
-    }
-
-    /**
-     * Job to create a temporary wire pin for wiring started on empty space.
-     */
-    private static class MakeWirePin extends Job
-    {
-        private final Cell cell;
-        private final double x, y;
-        private NodeInst pin;
-
-        MakeWirePin(Cell cell, double x, double y)
-        {
-            super("Make Wire Pin", User.getUserTool(), Job.Type.CHANGE, null, null, Job.Priority.USER);
-            this.cell = cell;
-            this.x = x;
-            this.y = y;
-            startJob();
-        }
-
-        @Override
-        public boolean doIt() throws JobException
-        {
-            PrimitiveNode pinProto = Schematics.tech().wire_arc.findOverridablePinProto(getEditingPreferences());
-            if (pinProto == null) return false;
-            pin = NodeInst.makeInstance(pinProto, new Point2D.Double(x, y), 0, 0, cell);
-            if (pin == null) return false;
-            fieldVariableChanged("pin");
-            return true;
-        }
-
-        @Override
-        public void terminateOK()
-        {
-            if (pin == null) return;
-            EditWindow wnd = EditWindow.getCurrent();
-            if (wnd == null) return;
-            ClickZoomWireListener.theOne.wireFromPinCreated(wnd, pin);
-        }
     }
 
     @Override
