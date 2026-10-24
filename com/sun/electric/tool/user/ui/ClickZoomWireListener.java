@@ -444,7 +444,16 @@ public class ClickZoomWireListener
                 // JLCEDA-style click-click wiring: second click commits the wire
                 if (modeLeft == Mode.wireClickActive) {
                     Highlight h = highlighter.findObject(dbClick, wnd, false, false, false, true, false, specialSelect, false, true);
-                    endObj = (h != null) ? h.getElectricObject() : null;
+                    ElectricObject commitObj = (h != null) ? h.getElectricObject() : null;
+                    if (commitObj == startObj) commitObj = null;
+                    Point2D wireStartPt = getWireStartPoint();
+                    if (wireStartPt != null && dbClick.distance(wireStartPt) < 1.0)
+                    {
+                        // clicking on the start point again cancels the wire
+                        cancelWireClickMode(wnd);
+                        return;
+                    }
+                    endObj = commitObj;
                     User.getUserTool().setCurrentArcProto(currentArcWhenWiringPressed);
                     EditWindow.gridAlign(dbClick);
                     router.makeRoute(wnd, startCell, startObj, endObj, dbClick);
@@ -1720,7 +1729,6 @@ public class ClickZoomWireListener
         router.startInteractiveRoute(wnd);
         currentArcWhenWiringPressed = User.getUserTool().getCurrentArcProto();
         modeLeft = Mode.wireClickActive;
-        router.highlightRoute(wnd, startCell, startObj, null, dbMouse);
         EPoint c = pi.getCenter();
         PixelDrawing.setSchematicWirePreview(true,
                 new Point2D.Double(c.getX(), c.getY()), new Point2D.Double(dbMouse.getX(), dbMouse.getY()));
@@ -1729,7 +1737,7 @@ public class ClickZoomWireListener
 
     private void startBlankWireClickMode(EditWindow wnd, Cell cell, Point2D dbMouse)
     {
-        new MakeWirePin(wnd, cell, dbMouse.getX(), dbMouse.getY());
+        new MakeWirePin(cell, dbMouse.getX(), dbMouse.getY());
     }
 
     void wireFromPinCreated(EditWindow wnd, NodeInst pin)
@@ -1746,7 +1754,6 @@ public class ClickZoomWireListener
         currentArcWhenWiringPressed = User.getUserTool().getCurrentArcProto();
         modeLeft = Mode.wireClickActive;
         Point2D dbMouse = wnd.screenToDatabase(mouseX, mouseY);
-        router.highlightRoute(wnd, startCell, startObj, null, dbMouse);
         EPoint c = pi.getCenter();
         PixelDrawing.setSchematicWirePreview(true,
                 new Point2D.Double(c.getX(), c.getY()), new Point2D.Double(dbMouse.getX(), dbMouse.getY()));
@@ -1755,16 +1762,32 @@ public class ClickZoomWireListener
 
     private void updateWirePreview(EditWindow wnd, Highlighter highlighter, Point2D dbMouse)
     {
+        // update the alignment guide lines immediately
+        Point2D startPt = getWireStartPoint();
+        if (startPt != null)
+            PixelDrawing.setSchematicWirePreview(true, new Point2D.Double(startPt.getX(), startPt.getY()),
+                    new Point2D.Double(dbMouse.getX(), dbMouse.getY()));
+        // skip routing the preview while the cursor is still on the start point:
+        // routing from a port to its own location is degenerate and can hang
+        if (startPt != null && dbMouse.distance(startPt) < 1.0)
+        {
+            wnd.repaint();
+            return;
+        }
         Highlight h = highlighter.findObject(dbMouse, wnd, false, false, false, true, false, specialSelect, false, true);
-        endObj = (h != null) ? h.getElectricObject() : null;
+        endObj = (h != null && h.getElectricObject() != startObj) ? h.getElectricObject() : null;
         router.highlightRoute(wnd, startCell, startObj, endObj, dbMouse);
+        wnd.repaint();
+    }
+
+    private Point2D getWireStartPoint()
+    {
         if (startObj instanceof PortInst)
         {
             EPoint c = ((PortInst)startObj).getCenter();
-            PixelDrawing.setSchematicWirePreview(true,
-                    new Point2D.Double(c.getX(), c.getY()), new Point2D.Double(dbMouse.getX(), dbMouse.getY()));
+            return new Point2D.Double(c.getX(), c.getY());
         }
-        wnd.repaint();
+        return null;
     }
 
     private void cancelWireClickMode(EditWindow wnd)
@@ -1781,13 +1804,30 @@ public class ClickZoomWireListener
         if (blankWirePin == null) return;
         NodeInst pin = blankWirePin;
         blankWirePin = null;
-        new Job("Kill Wire Pin", User.getUserTool(), Job.Type.CHANGE, null, null, Job.Priority.USER) {
-            public boolean doIt() throws JobException
-            {
-                pin.kill();
-                return true;
-            }
-        }.startJob();
+        new KillWirePin(pin);
+    }
+
+    /**
+     * Job to remove the temporary wire pin when click-click wiring is cancelled.
+     * Kept serializable: only holds database objects.
+     */
+    private static class KillWirePin extends Job
+    {
+        private final NodeInst pin;
+
+        KillWirePin(NodeInst pin)
+        {
+            super("Kill Wire Pin", User.getUserTool(), Job.Type.CHANGE, null, null, Job.Priority.USER);
+            this.pin = pin;
+            startJob();
+        }
+
+        @Override
+        public boolean doIt() throws JobException
+        {
+            pin.kill();
+            return true;
+        }
     }
 
     private PortInst findDanglingPortUnderMouse(EditWindow wnd, Point2D dbClick)
@@ -1837,15 +1877,13 @@ public class ClickZoomWireListener
      */
     private static class MakeWirePin extends Job
     {
-        private final EditWindow wnd;
         private final Cell cell;
         private final double x, y;
         private NodeInst pin;
 
-        MakeWirePin(EditWindow wnd, Cell cell, double x, double y)
+        MakeWirePin(Cell cell, double x, double y)
         {
             super("Make Wire Pin", User.getUserTool(), Job.Type.CHANGE, null, null, Job.Priority.USER);
-            this.wnd = wnd;
             this.cell = cell;
             this.x = x;
             this.y = y;
@@ -1867,6 +1905,8 @@ public class ClickZoomWireListener
         public void terminateOK()
         {
             if (pin == null) return;
+            EditWindow wnd = EditWindow.getCurrent();
+            if (wnd == null) return;
             ClickZoomWireListener.theOne.wireFromPinCreated(wnd, pin);
         }
     }
