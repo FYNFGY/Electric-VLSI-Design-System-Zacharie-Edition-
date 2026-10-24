@@ -1869,7 +1869,8 @@ public class ClickZoomWireListener
             PrimitiveNode.Function fn = ((PrimitiveNode)ni.getProto()).getFunction();
             if (fn == PrimitiveNode.Function.CONNECT) return true; // wire connection node
             if (fn == PrimitiveNode.Function.PIN) return true;      // wire pins and labeled pins
-            if (fn == PrimitiveNode.Function.CONTACT || fn == PrimitiveNode.Function.NODE) return false;
+            if (fn == PrimitiveNode.Function.CONTACT || fn == PrimitiveNode.Function.NODE
+                || fn == PrimitiveNode.Function.ART) return false;
         } else if (!ni.isCellInstance()) return false;
         return !isPortArcConnected(ni.getParent(), pi);
     }

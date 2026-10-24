@@ -1176,8 +1176,8 @@ public class PixelDrawing {
 				if (np instanceof PrimitiveNode)
 				{
 					PrimitiveNode.Function fn = ((PrimitiveNode)np).getFunction();
-					if (fn == PrimitiveNode.Function.CONNECT
-						|| fn == PrimitiveNode.Function.CONTACT || fn == PrimitiveNode.Function.NODE)
+					if (fn == PrimitiveNode.Function.CONNECT || fn == PrimitiveNode.Function.CONTACT
+						|| fn == PrimitiveNode.Function.NODE || fn == PrimitiveNode.Function.ART)
 						continue; // wiring infrastructure and artwork: handled elsewhere
 					if (fn == PrimitiveNode.Function.PIN)
 					{
@@ -1211,22 +1211,6 @@ public class PixelDrawing {
 			Point2D c = ni.getTrueCenter();
 			ScreenPoint sp = wnd.databaseToScreen(c.getX(), c.getY());
 			g.fillOval(sp.getIntX() - 4, sp.getIntY() - 4, 8, 8);
-		}
-
-		// wire pins render as thick blue dots (native wiring junctions)
-		g.setColor(new Color(40, 90, 220));
-		for (Iterator<NodeInst> it = cell.getNodes(); it.hasNext();)
-		{
-			NodeInst ni = it.next();
-			if (!(ni.getProto() instanceof PrimitiveNode)) continue;
-			if (((PrimitiveNode)ni.getProto()).getFunction() != PrimitiveNode.Function.PIN) continue;
-			Name nameKey = ni.getNameKey();
-			if (ni.hasExports() || (nameKey != null && !nameKey.isTempname())) continue; // labeled pin (ground tag)
-			Point2D c = ni.getTrueCenter();
-			ScreenPoint sp = wnd.databaseToScreen(c.getX(), c.getY());
-			// junctions (3+ connections) get a bigger dot, like the native pin
-			int r = (ni.getNumConnections() >= 3) ? 6 : 4;
-			g.fillOval(sp.getIntX() - r, sp.getIntY() - r, r * 2, r * 2);
 		}
 
 		// contact points while moving components: green crosses
