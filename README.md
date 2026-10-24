@@ -1,4 +1,4 @@
-# Electric VLSI Design System v1.0.0 (JLCEDA-style Wiring Edition)
+# Electric VLSI Design System(Edition de Zacharie)
 
 A customized enhancement of [Electric VLSI Design System](https://www.staticfreesoft.com/) 9.08.1 (open-source GPL EDA tool), focused on schematic editing experience. The goal: make schematic wiring feel like JLCEDA (EasyEDA-style) interaction.
 
