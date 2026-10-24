@@ -1,0 +1,11 @@
+# build output
+target/
+
+# logs
+*.log
+
+# original distribution jar (rebuild via build.xml / target)
+/electric-9.08.1.jar
+
+# IDE / editor state
+.idea/claudeCodeTabState.xml

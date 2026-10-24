@@ -1,0 +1,66 @@
+<!-- NEED 5in -->
+
+<!-- HEADER 1-4-5: Eclipse Access to the savannah.gnu.org Repository -->
+
+<ol>
+  <li>Make sure you have Java 17 or later.</li>
+  <li>
+    Install Eclipse:
+    <ul>
+      <li>Get it from <a href="https://www.eclipse.org">www.eclipse.org</a></li>
+      <li>Run it</li>
+    </ul>
+  </li>
+  <li>Add Subversions to Eclipse:
+    <ul>
+      <li>Do: <b>Help / Eclipse Marketplace</b></li>
+      <li>Search for "Subclipse" and install it</b></li>
+    </ul>
+  </li>
+  <li>Download Electric:
+    <ul>
+      <li>Do: <b>File / Import</b></li>
+      <li>Choose: <b>SVN / Checkout Projects from SVN</b>
+        <ul>
+          <li>Repository is: <b>svn://svn.savannah.gnu.org/electric/trunk</b></li>
+          <li>In the choice of what to download, select the top-level ("electric")</li>
+          <li>Use the wizard: <b>Java / Java Project</b></li>
+          <li>Name the project "Electric"</li>
+        </ul>
+	  </li>
+      <li>After the files have been downloaded, delete "src/module-info.java" and "src"</li>
+    </ul>
+  </li>
+  <li>Make the Electric project:
+    <ul>
+      <li>Do: <b>File / New / Java Project</b>
+        <ul>
+        <li>Name it: "electricJava"</li>
+        <li>Use the location: "Electric/electric-java"</li>
+        </ul>
+	  </li>
+      <li>Right-click on the "electricJava" project and select <b>Properties</b>
+        <ul>
+          <li>Select <b>Java Build Path</b>, then choose the <b>Libraries</b> tab</li>
+          <li>Select <b>Classpath</b> and click <b>Add External JARs</b> on the right</li>
+          <li>Choose these JAR files in the "Electric/Packaging" download:
+            <ul>
+              <li>slf4j-api, slf4j-jdk14, j3dcore, j3dutils, vecmath, jogamp-fat, jmf, bsh, jython</li>
+			</ul>
+		  </li>
+        </ul>
+	  </li>
+      <li>It may be advisable to rebuild at this point with <b>Project / Clean</b></li>
+      <li>Right-click the "electric-java" project and choose <b>Run As / Java Application</b>
+        <ul>
+          <li>Choose the main class: "Electric (com.sun.electric)"</li>
+          <li>3D rendering will crash unless you add this to the VM Arguments:<br/>
+	--add-opens=java.desktop/sun.awt=ALL-UNNAMED</li>
+        </ul>
+
+      </li>
+    </ul>
+  </li>
+</ol>
+
+<!-- TRAILER -->
