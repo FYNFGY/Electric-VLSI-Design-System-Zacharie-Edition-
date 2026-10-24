@@ -1224,7 +1224,9 @@ public class PixelDrawing {
 			if (ni.hasExports() || (nameKey != null && !nameKey.isTempname())) continue; // labeled pin (ground tag)
 			Point2D c = ni.getTrueCenter();
 			ScreenPoint sp = wnd.databaseToScreen(c.getX(), c.getY());
-			g.fillOval(sp.getIntX() - 4, sp.getIntY() - 4, 8, 8);
+			// junctions (3+ connections) get a bigger dot, like the native pin
+			int r = (ni.getNumConnections() >= 3) ? 6 : 4;
+			g.fillOval(sp.getIntX() - r, sp.getIntY() - r, r * 2, r * 2);
 		}
 
 		// contact points while moving components: green crosses

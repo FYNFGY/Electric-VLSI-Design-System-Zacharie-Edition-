@@ -126,6 +126,7 @@ public class ClickZoomWireListener
     private ElectricObject wiringTarget;        /* last highlight user switched to possibly wire to */
     private ElectricObject pressedObject;       /* object under cursor when the left button went down */
     private Point2D.Double wireArcStartDBPoint; /* start point when wiring began on an arc */
+    private NodeInst blankWirePin;              /* temporary pin created for wiring from empty space */
 
 
     // wiring stuff
@@ -489,6 +490,7 @@ public class ClickZoomWireListener
                         EditWindow.gridAlign(dbClick);
                         router.makeRoute(wnd, startCell, startObj, endObj, dbClick);
                         wiringTarget = null;
+                        blankWirePin = null;
                         modeLeft = Mode.none;
                         PixelDrawing.setSchematicWirePreview(false, null, null);
                         wnd.repaint();
@@ -1409,6 +1411,10 @@ public class ClickZoomWireListener
 	        		return;
 	        	}
 
+	        	// JLCEDA-style: wiring modes are driven by presses, not releases
+	        	if (modeLeft == Mode.wireClickActive || modeLeft == Mode.wireModePending)
+	        		return;
+
 	        	// clear contact markers after the move gesture ends
 	        	PixelDrawing.setSchematicContactPoints(null);
 
@@ -1760,6 +1766,7 @@ public class ClickZoomWireListener
         if (modeLeft == Mode.wireClickActive)
         {
             router.cancelInteractiveRoute();
+            killBlankWirePin();
             PixelDrawing.setSchematicWirePreview(false, null, null);
             PixelDrawing.setSchematicContactPoints(null);
         }
@@ -1838,6 +1845,7 @@ public class ClickZoomWireListener
 
     private void exitWireMode(EditWindow wnd)
     {
+        killBlankWirePin();
         modeLeft = Mode.none;
         PixelDrawing.setSchematicWirePreview(false, null, null);
         PixelDrawing.setSchematicContactPoints(null);
@@ -2022,11 +2030,42 @@ public class ClickZoomWireListener
     private void cancelWireClickMode(EditWindow wnd)
     {
         router.cancelInteractiveRoute();
+        killBlankWirePin();
         modeLeft = Mode.none;
         PixelDrawing.setSchematicWirePreview(false, null, null);
         PixelDrawing.setSchematicContactPoints(null);
         TopLevel.setCurrentCursor(null);
         wnd.repaint();
+    }
+
+    private void killBlankWirePin()
+    {
+        if (blankWirePin == null) return;
+        NodeInst pin = blankWirePin;
+        blankWirePin = null;
+        if (pin.isLinked()) new KillWirePin(pin);
+    }
+
+    /**
+     * Job to remove the temporary wire pin when wiring is cancelled.
+     */
+    private static class KillWirePin extends Job
+    {
+        private final NodeInst pin;
+
+        KillWirePin(NodeInst pin)
+        {
+            super("Kill Wire Pin", User.getUserTool(), Job.Type.CHANGE, null, null, Job.Priority.USER);
+            this.pin = pin;
+            startJob();
+        }
+
+        @Override
+        public boolean doIt() throws JobException
+        {
+            pin.kill();
+            return true;
+        }
     }
 
     /**
@@ -2078,6 +2117,7 @@ public class ClickZoomWireListener
 
     void wireFromPinCreated(EditWindow wnd, NodeInst pin)
     {
+        blankWirePin = pin;
         Highlighter highlighter = wnd.getHighlighter();
         highlighter.clear();
         PortInst pi = pin.getOnlyPortInst();
